@@ -242,43 +242,42 @@ int tfs_unlink(char const *target) {
 }
 
 int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
-    
-    FILE *src, *dest;
-    src = tfs_open(source_path, "r"); // mudar as flags
-    dest = tfs_open(dest_path, "w");
+	FILE *src;
+    int dest;
+    src = fopen(source_path, "r");
+    dest = tfs_open(dest_path,TFS_O_CREAT | TFS_O_TRUNC);
 
-    if (src == NULL){
-      //fprintf(stderr, "open error: %s\n", strerror(errno)); IS IT NEEDED ???
-      return -1;
-    }
+	/* return -1 if src doesnt exists */
+    if (src == NULL) {
+		tfs_close(dest);
+		return -1;
+	} 
 
-    /* if the destination file does not exist */
-    if(dest == NULL){
-        dest = tfs_open(dest_path, TFS_O_CREAT);
-    }
-
-    /* create a buffer to store source content */
-    fseek(src, 0, SEEK_END);
-    char buffer[ftell(src)];
-    fseek(src, 0, SEEK_SET);
-
-    /* read the contents of the source file */
-    size_t bytes_read = tfs_read(src, buffer, sizeof(buffer));
-    if (bytes_read < 0){
-      return -1;
-    }
-
-    /* write the contents on the destination file */
-    size_t bytes_written = tfs_write(dest, buffer, sizeof(buffer));
-    if (bytes_written < 0){
-      return -1;
-    }
+	/* create a buffer to store source content */
+	char buffer[BUFFER_SIZE];
+	size_t bytes_read;
+	do {
+		/* read src */
+		memset(buffer,0,sizeof(buffer));
+		bytes_read = fread(buffer, sizeof(char), sizeof(buffer), src);
+		if (bytes_read==-1) {
+			fclose(src);
+			tfs_close(dest);
+			return -1;
+		} 
+		/* write in dest */
+		ssize_t bytes_write;
+		bytes_write = tfs_write(dest, buffer, bytes_read);
+		if (bytes_write == -1 || bytes_write != bytes_read) {
+			fclose(src);
+			tfs_close(dest);
+			return -1;
+		}		
+	} while (bytes_read >= BUFFER_SIZE*sizeof(char));
 
    /* close files */
-   tfs_close(src);
-   tfs_fclose(dest);
+   fclose(src);
+   tfs_close(dest);
 
    return 0;
-
-    //PANIC("TODO: tfs_copy_from_external_fs");
 }

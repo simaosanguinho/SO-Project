@@ -1,4 +1,4 @@
-#include "../fs/operations.h"
+#include "fs/operations.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,7 +17,6 @@ int main() {
 
     f = tfs_copy_from_external_fs(path_src, path_copied_file);
     assert(f != -1);
-    assert(f == strlen(str_ext_file));
 
     f = tfs_open(path_copied_file, TFS_O_CREAT);
     assert(f != -1);
