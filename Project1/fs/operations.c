@@ -244,33 +244,39 @@ int tfs_unlink(char const *target) {
 int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
     
     FILE *src, *dest;
-    src = fopen(source_path, "r");
-    dest = fopen(dest_path, "w");
-    if (src == NULL || dest == NULL){
+    src = tfs_open(source_path, "r"); // mudar as flags
+    dest = tfs_open(dest_path, "w");
+
+    if (src == NULL){
       //fprintf(stderr, "open error: %s\n", strerror(errno)); IS IT NEEDED ???
       return -1;
     }
-    
+
+    /* if the destination file does not exist */
+    if(dest == NULL){
+        dest = tfs_open(dest_path, TFS_O_CREAT);
+    }
+
     /* create a buffer to store source content */
     fseek(src, 0, SEEK_END);
     char buffer[ftell(src)];
     fseek(src, 0, SEEK_SET);
 
     /* read the contents of the source file */
-    size_t bytes_read = fread(buffer, sizeof(char), sizeof(buffer), src);
+    size_t bytes_read = tfs_read(src, buffer, sizeof(buffer));
     if (bytes_read < 0){
       return -1;
     }
 
     /* write the contents on the destination file */
-    size_t bytes_written = fwrite(buffer, sizeof(char), sizeof(buffer), dest);
+    size_t bytes_written = tfs_write(dest, buffer, sizeof(buffer));
     if (bytes_written < 0){
       return -1;
     }
 
    /* close files */
-   fclose(src);
-   fclose(dest);
+   tfs_close(src);
+   tfs_fclose(dest);
 
    return 0;
 
