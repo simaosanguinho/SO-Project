@@ -148,7 +148,7 @@ int tfs_sym_link(char const *target, char const *link_name) {
 
 	inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
     ALWAYS_ASSERT(root_dir_inode != NULL,
-                  "tfs_open: root dir inode must exist");
+                  "tfs_sym_link: root dir inode must exist");
 
 	int inum = inode_create(T_SOFTLINK);
 	inode_t *inode = inode_get(inum);
@@ -289,11 +289,36 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 }
 
 int tfs_unlink(char const *target) {
-    (void)target;
-    // ^ this is a trick to keep the compiler from complaining about unused
-    // variables. TODO: remove
+    if (!valid_pathname(target)) {
+        return -1; // invalid pathname
+    }
 
-    PANIC("TODO: tfs_unlink");
+    // get root dir inode
+    inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
+    ALWAYS_ASSERT(root_dir_inode != NULL,
+                  "tfs_unlink: root dir inode must exist");
+    int inum = tfs_lookup(target, root_dir_inode);
+    if (inum == -1) {
+        return -1; // invalid inode
+    }
+
+    if (clear_dir_entry(root_dir_inode, target+1) == -1) {
+        return -1; // error deleting the dir entry
+    }
+
+    inode_t *inode = inode_get(inum);
+    if (inode->i_node_type == T_SOFTLINK) {
+        inode_delete(inum);
+        return 0;
+    } else if (inode->hard_link_count == 1) {
+        inode_delete(inum);
+        return 0; 
+    } else if (inode->hard_link_count > 1) {
+        inode->hard_link_count--;
+        return 0;
+    }
+    
+    return -1;
 }
 
 int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
