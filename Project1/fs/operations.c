@@ -196,11 +196,7 @@ int tfs_link(char const *target, char const *link_name) {
 	if (inode->i_node_type == T_SOFTLINK) {
 		return -1; // cant create hardlink for softlink
 	}
-	if (inode->hard_link_count==-1) {
-		inode->hard_link_count = 1;
-	} else {
-		inode->hard_link_count++;
-	}
+	inode->hard_link_count++;
 
 	if (add_dir_entry(root_dir_inode, link_name + 1, inum) == -1) {
 		return -1; // no space in directory
