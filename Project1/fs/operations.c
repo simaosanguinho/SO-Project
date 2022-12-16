@@ -90,6 +90,15 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
         inode_t *inode = inode_get(inum);
         ALWAYS_ASSERT(inode != NULL,
                       "tfs_open: directory files must have an inode");
+		if (inode->i_node_type == T_SOFTLINK) {
+			char target[FILENAME_MAX];
+			void *block = data_block_get(inode->i_data_block);
+			ALWAYS_ASSERT(block != NULL, "tfs_open: data block deleted mid-read");
+			size_t to_read = inode->i_size;
+			memcpy(target, block, to_read);
+
+			return tfs_open(target, mode);
+		}
 
         // Truncate (if requested)
         if (mode & TFS_O_TRUNC) {
@@ -133,12 +142,39 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
 }
 
 int tfs_sym_link(char const *target, char const *link_name) {
-    (void)target;
-    (void)link_name;
-    // ^ this is a trick to keep the compiler from complaining about unused
-    // variables. TODO: remove
+	if (!valid_pathname(target)) {
+        return -1;
+    }
 
-    PANIC("TODO: tfs_sym_link");
+	inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
+    ALWAYS_ASSERT(root_dir_inode != NULL,
+                  "tfs_open: root dir inode must exist");
+
+	int inum = inode_create(T_SOFTLINK);
+	inode_t *inode = inode_get(inum);
+	if (inum == -1) {
+		return -1; // no space in inode table
+	}
+
+	// write target directory size
+	size_t to_write = sizeof(target);
+	int bnum = data_block_alloc();
+	if (bnum == -1) {
+		return -1; // no space
+	}
+
+	inode->i_data_block = bnum;
+
+	void *block = data_block_get(inode->i_data_block);
+	memcpy(block, target, to_write);
+	inode->i_size = to_write;
+
+	if (add_dir_entry(root_dir_inode, link_name + 1, inum) == -1) {
+		return -1; // no space in directory
+	}
+
+
+	return 0;
 }
 
 int tfs_link(char const *target, char const *link_name) {
@@ -149,7 +185,7 @@ int tfs_link(char const *target, char const *link_name) {
 
 	inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
     ALWAYS_ASSERT(root_dir_inode != NULL,
-                  "tfs_open: root dir inode must exist");
+                  "tfs_link: root dir inode must exist");
     int inum = tfs_lookup(target, root_dir_inode);
 
 	if (inum == -1) {
@@ -157,7 +193,14 @@ int tfs_link(char const *target, char const *link_name) {
 	}
 
 	inode_t *inode = inode_get(inum);
-	inode->hard_link_count++;
+	if (inode->i_node_type == T_SOFTLINK) {
+		return -1; // cant create hardlink for softlink
+	}
+	if (inode->hard_link_count==-1) {
+		inode->hard_link_count = 1;
+	} else {
+		inode->hard_link_count++;
+	}
 
 	if (add_dir_entry(root_dir_inode, link_name + 1, inum) == -1) {
 		return -1; // no space in directory
