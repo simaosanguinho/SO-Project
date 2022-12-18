@@ -327,7 +327,7 @@ int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
     src = fopen(source_path, "r");
     dest = tfs_open(dest_path,TFS_O_CREAT | TFS_O_TRUNC);
 
-	/* return -1 if src doesnt exists */
+	/* return -1 if src doesn't exist */
     if (src == NULL) {
 		tfs_close(dest);
 		return -1;
@@ -336,6 +336,7 @@ int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
 	/* create a buffer to store source content */
 	char buffer[BUFFER_SIZE];
 	size_t bytes_read;
+    ssize_t bytes_write;
 	do {
 		/* read src */
 		memset(buffer,0,sizeof(buffer));
@@ -346,7 +347,6 @@ int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
 			return -1;
 		} 
 		/* write in dest */
-		ssize_t bytes_write;
 		bytes_write = tfs_write(dest, buffer, bytes_read);
 		if (bytes_write == -1 || bytes_write != bytes_read) {
 			fclose(src);
