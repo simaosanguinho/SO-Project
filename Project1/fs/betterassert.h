@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+
 #define ALWAYS_ASSERT(CONDEXPR, MSG)                                           \
     {                                                                          \
         bool should_quit = !(CONDEXPR);                                        \

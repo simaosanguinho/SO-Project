@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+
 
 #include "betterassert.h"
 
@@ -244,10 +246,13 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         return -1;
     }
 
-    ALWAYS_ASSERT(pthread_mutex_lock(tfs_mutex) != NULL, "tfs_write: mutex couldn't be locked");
+    ALWAYS_ASSERT(pthread_mutex_lock(file->lock) != NULL, "tfs_write: mutex couldn't be locked");
     //  From the open file table entry, we get the inode
     inode_t *inode = inode_get(file->of_inumber);
     ALWAYS_ASSERT(inode != NULL, "tfs_write: inode of open file deleted");
+
+    ALWAYS_ASSERT(pthread_rwlock_wrlock(inode->lock) != 0,
+                                     "tfs_write: inode->lock couldn't be locked");
 
     // Determine how many bytes to write
     size_t block_size = state_block_size();
@@ -260,7 +265,10 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             // If empty file, allocate new block
             int bnum = data_block_alloc();
             if (bnum == -1) {
-                ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_write: mutex couldn't be unlocked");
+                 ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0,
+                                     "tfs_write: inode->lock couldn't be unlocked");
+                ALWAYS_ASSERT(pthread_mutex_unlock(file->lock) != NULL,
+                                     "tfs_write: mutex couldn't be unlocked");
                 return -1; // no space
             }
 
@@ -279,6 +287,12 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             inode->i_size = file->of_offset;
         }
     }
+    
+    ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0,
+                                     "tfs_write: inode->lock couldn't be unlocked");
+
+    ALWAYS_ASSERT(pthread_mutex_unlock(file->lock) != NULL,
+                                     "tfs_write: mutex couldn't be unlocked");
 
     return (ssize_t)to_write;
 }
@@ -288,10 +302,14 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     if (file == NULL) {
         return -1;
     }
-
+    ALWAYS_ASSERT(pthread_mutex_lock(file->lock) != NULL,
+                                     "tfs_read: mutex couldn't be locked");
     // From the open file table entry, we get the inode
     inode_t const *inode = inode_get(file->of_inumber);
     ALWAYS_ASSERT(inode != NULL, "tfs_read: inode of open file deleted");
+
+    ALWAYS_ASSERT(pthread_rwlock_rdlock(inode->lock) != 0,
+                                     "tfs_read: inode->lock couldn't be locked");
 
     // Determine how many bytes to read
     size_t to_read = inode->i_size - file->of_offset;
@@ -308,6 +326,12 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         // The offset associated with the file handle is incremented accordingly
         file->of_offset += to_read;
     }
+
+    ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0,
+                                     "tfs_read: inode->lock couldn't be unlocked");
+
+    ALWAYS_ASSERT(pthread_mutex_unlock(file->lock) != NULL,
+                                     "tfs_read: mutex couldn't be unlocked");
 
     return (ssize_t)to_read;
 }
