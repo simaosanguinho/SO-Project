@@ -28,6 +28,7 @@ typedef struct {
     size_t i_size;
     int i_data_block;
 	int hard_link_count; // contador de hardlinks (comeca a 1)
+    pthread_rwlock_t lock; 
 
     // in a more complete FS, more fields could exist here
 } inode_t;
