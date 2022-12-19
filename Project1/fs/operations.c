@@ -42,7 +42,7 @@ int tfs_init(tfs_params const *params_ptr) {
         return -1;
     }
 
-    ALWAYS_ASSERT(pthread_mutex_init(tfs_mutex, NULL) != 0, "tfs_init: mutex couldn't be initialized");
+    ALWAYS_ASSERT(pthread_mutex_init(&tfs_mutex, NULL) != 0, "tfs_init: mutex couldn't be initialized");
 
     return 0;
 }
@@ -52,7 +52,7 @@ int tfs_destroy() {
         return -1;
     }
 
-    ALWAYS_ASSERT(pthread_mutex_destroy(tfs_mutex) != 0, "tfs_destroy: mutex couldn't be destroyed");
+    ALWAYS_ASSERT(pthread_mutex_destroy(&tfs_mutex) != 0, "tfs_destroy: mutex couldn't be destroyed");
     return 0;
 }
 
@@ -91,14 +91,14 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
 
     inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
     ALWAYS_ASSERT(root_dir_inode != NULL, "tfs_open: root dir inode must exist");
-    ALWAYS_ASSERT(pthread_mutex_lock(tfs_mutex) != NULL, "tfs_open: mutex couldn't be locked");
+    ALWAYS_ASSERT(pthread_mutex_lock(&tfs_mutex) != 0, "tfs_open: mutex couldn't be locked");
 
     int inum = tfs_lookup(name, root_dir_inode);
     size_t offset;
 
     if (inum >= 0) {
         // The file already exists
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_open: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_open: mutex couldn't be unlocked");
 
         inode_t *inode = inode_get(inum);
         ALWAYS_ASSERT(inode != NULL, "tfs_open: directory files must have an inode");
@@ -131,20 +131,20 @@ int tfs_open(char const *name, tfs_file_mode_t mode) {
         // Create inode
         inum = inode_create(T_FILE);
         if (inum == -1) {
-            ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_open: mutex couldn't be unlocked");
+            ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_open: mutex couldn't be unlocked");
             return -1; // no space in inode table
         }
 
         // Add entry in the root directory
         if (add_dir_entry(root_dir_inode, name + 1, inum) == -1) {
-            ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_open: mutex couldn't be unlocked");
+            ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_open: mutex couldn't be unlocked");
             inode_delete(inum);
             return -1; // no space in directory
         }
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_open: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_open: mutex couldn't be unlocked");
         offset = 0;
     } else {
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_open: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_open: mutex couldn't be unlocked");
         return -1;
     }
 
@@ -165,15 +165,15 @@ int tfs_sym_link(char const *target, char const *link_name) {
 	inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
     ALWAYS_ASSERT(root_dir_inode != NULL,
                   "tfs_sym_link: root dir inode must exist");
-    ALWAYS_ASSERT(pthread_mutex_lock(tfs_mutex) != NULL, "tfs_sym_link: mutex couldn't be locked");
+    ALWAYS_ASSERT(pthread_mutex_lock(&tfs_mutex) != 0, "tfs_sym_link: mutex couldn't be locked");
 
 	int inum = inode_create(T_SOFTLINK);
     /* add the inode to directory table */
     if (add_dir_entry(root_dir_inode, link_name + 1, inum) == -1) {
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_sym_link: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_sym_link: mutex couldn't be unlocked");
 		return -1; // no space in directory
 	}
-    ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_sym_link: mutex couldn't be unlocked");
+    ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_sym_link: mutex couldn't be unlocked");
 
 	inode_t *inode = inode_get(inum);
 	if (inum == -1) {
@@ -182,14 +182,14 @@ int tfs_sym_link(char const *target, char const *link_name) {
 
 	// write target directory size
 	size_t to_write = sizeof(target);
-    ALWAYS_ASSERT(pthread_mutex_lock(tfs_mutex) != NULL, "tfs_sym_link: mutex couldn't be locked");
+    ALWAYS_ASSERT(pthread_mutex_lock(&tfs_mutex) != 0, "tfs_sym_link: mutex couldn't be locked");
 	int bnum = data_block_alloc();
 	if (bnum == -1) {
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_sym_link: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_sym_link: mutex couldn't be unlocked");
 		return -1; // no space
 	}
 	inode->i_data_block = bnum;
-    ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_sym_link: mutex couldn't be unlocked");
+    ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_sym_link: mutex couldn't be unlocked");
 
 
 	void *block = data_block_get(inode->i_data_block);
@@ -213,19 +213,19 @@ int tfs_link(char const *target, char const *link_name) {
 		return -1;
 	}
 
-    ALWAYS_ASSERT(pthread_mutex_lock(tfs_mutex) != NULL, "tfs_link: mutex couldn't be locked");
+    ALWAYS_ASSERT(pthread_mutex_lock(&tfs_mutex) != 0, "tfs_link: mutex couldn't be locked");
 	inode_t *inode = inode_get(inum);
 	if (inode->i_node_type == T_SOFTLINK) {
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_link: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_link: mutex couldn't be unlocked");
 		return -1; // can't create hardlink for softlink
 	}
 	inode->hard_link_count++;
 
 	if (add_dir_entry(root_dir_inode, link_name + 1, inum) == -1) {
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_link: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_link: mutex couldn't be unlocked");
 		return -1; // no space in directory
 	}
-    ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_link: mutex couldn't be unlocked");
+    ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_link: mutex couldn't be unlocked");
 	return 0;
 }
 
@@ -246,12 +246,12 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         return -1;
     }
 
-    ALWAYS_ASSERT(pthread_mutex_lock(file->lock) != NULL, "tfs_write: mutex couldn't be locked");
+    ALWAYS_ASSERT(pthread_mutex_lock(&file->lock) != 0, "tfs_write: mutex couldn't be locked");
     //  From the open file table entry, we get the inode
     inode_t *inode = inode_get(file->of_inumber);
     ALWAYS_ASSERT(inode != NULL, "tfs_write: inode of open file deleted");
 
-    ALWAYS_ASSERT(pthread_rwlock_wrlock(inode->lock) != 0,
+    ALWAYS_ASSERT(pthread_rwlock_wrlock(&inode->lock) != 0,
                                      "tfs_write: inode->lock couldn't be locked");
 
     // Determine how many bytes to write
@@ -265,9 +265,9 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
             // If empty file, allocate new block
             int bnum = data_block_alloc();
             if (bnum == -1) {
-                 ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0,
+                 ALWAYS_ASSERT(pthread_rwlock_unlock(&inode->lock) != 0,
                                      "tfs_write: inode->lock couldn't be unlocked");
-                ALWAYS_ASSERT(pthread_mutex_unlock(file->lock) != NULL,
+                ALWAYS_ASSERT(pthread_mutex_unlock(&file->lock) != 0,
                                      "tfs_write: mutex couldn't be unlocked");
                 return -1; // no space
             }
@@ -288,10 +288,10 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
         }
     }
     
-    ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0,
+    ALWAYS_ASSERT(pthread_rwlock_unlock(&inode->lock) != 0,
                                      "tfs_write: inode->lock couldn't be unlocked");
 
-    ALWAYS_ASSERT(pthread_mutex_unlock(file->lock) != NULL,
+    ALWAYS_ASSERT(pthread_mutex_unlock(&file->lock) != 0,
                                      "tfs_write: mutex couldn't be unlocked");
 
     return (ssize_t)to_write;
@@ -302,13 +302,13 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
     if (file == NULL) {
         return -1;
     }
-    ALWAYS_ASSERT(pthread_mutex_lock(file->lock) != NULL,
+    ALWAYS_ASSERT(pthread_mutex_lock(&file->lock) != 0,
                                      "tfs_read: mutex couldn't be locked");
     // From the open file table entry, we get the inode
-    inode_t const *inode = inode_get(file->of_inumber);
+    inode_t *inode = inode_get(file->of_inumber);
     ALWAYS_ASSERT(inode != NULL, "tfs_read: inode of open file deleted");
 
-    ALWAYS_ASSERT(pthread_rwlock_rdlock(inode->lock) != 0,
+    ALWAYS_ASSERT(pthread_rwlock_rdlock(&inode->lock) != 0,
                                      "tfs_read: inode->lock couldn't be locked");
 
     // Determine how many bytes to read
@@ -327,10 +327,10 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
         file->of_offset += to_read;
     }
 
-    ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0,
+    ALWAYS_ASSERT(pthread_rwlock_unlock(&inode->lock) != 0,
                                      "tfs_read: inode->lock couldn't be unlocked");
 
-    ALWAYS_ASSERT(pthread_mutex_unlock(file->lock) != NULL,
+    ALWAYS_ASSERT(pthread_mutex_unlock(&file->lock) != 0,
                                      "tfs_read: mutex couldn't be unlocked");
 
     return (ssize_t)to_read;
@@ -354,22 +354,22 @@ int tfs_unlink(char const *target) {
         return -1; // error deleting the dir entry
     }
 
-    ALWAYS_ASSERT(pthread_mutex_lock(tfs_mutex) != NULL, "tfs_unlink: mutex couldn't be locked");
+    ALWAYS_ASSERT(pthread_mutex_lock(&tfs_mutex) != 0, "tfs_unlink: mutex couldn't be locked");
     inode_t *inode = inode_get(inum);
     if (inode->i_node_type == T_SOFTLINK) {
         inode_delete(inum);
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_unlink: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_unlink: mutex couldn't be unlocked");
         return 0;
     } else if (inode->hard_link_count == 1) {
         inode_delete(inum);
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_unlink: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_unlink: mutex couldn't be unlocked");
         return 0; 
     } else if (inode->hard_link_count > 1) {
         inode->hard_link_count--;
-        ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_unlink: mutex couldn't be unlocked");
+        ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_unlink: mutex couldn't be unlocked");
         return 0;
     }
-    ALWAYS_ASSERT(pthread_mutex_unlock(tfs_mutex) != NULL, "tfs_unlink: mutex couldn't be unlocked");
+    ALWAYS_ASSERT(pthread_mutex_unlock(&tfs_mutex) != 0, "tfs_unlink: mutex couldn't be unlocked");
     return -1;
 }
 

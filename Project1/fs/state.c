@@ -131,7 +131,7 @@ int state_init(tfs_params params) {
         free_open_file_entries[i] = FREE;
     }
 
-    ALWAYS_ASSERT(pthread_rwlock_init(freeinode_ts_rwl, NULL) != 0, 
+    ALWAYS_ASSERT(pthread_rwlock_init(&freeinode_ts_rwl, NULL) != 0, 
                             "state_init: freeinode_ts_rwl failed to initialize");
     return 0;
 }
@@ -179,12 +179,12 @@ static int inode_alloc(void) {
 
         // Finds first free entry in inode table
         if (freeinode_ts[inumber] == FREE) {
-            ALWAYS_ASSERT(pthread_rwlock_unlock(freeinode_ts_rwl) != 0, "inode_alloc: freeinode_ts_rwl failed to unlock");
-            ALWAYS_ASSERT(pthread_rwlock_wrlock(freeinode_ts_rwl) != 0, "inode_alloc: freeinode_ts_rwl failed to lock");
+            ALWAYS_ASSERT(pthread_rwlock_unlock(&freeinode_ts_rwl) != 0, "inode_alloc: freeinode_ts_rwl failed to unlock");
+            ALWAYS_ASSERT(pthread_rwlock_wrlock(&freeinode_ts_rwl) != 0, "inode_alloc: freeinode_ts_rwl failed to lock");
 
             if (freeinode_ts[inumber] != FREE) {
-                ALWAYS_ASSERT(pthread_rwlock_unlock(freeinode_ts_rwl) != 0, "inode_alloc: freeinode_ts_rwl failed to unlock");
-                ALWAYS_ASSERT(pthread_rwlock_rdlock(freeinode_ts_rwl) != 0, "inode_alloc: freeinode_ts_rwl failed to unlock");
+                ALWAYS_ASSERT(pthread_rwlock_unlock(&freeinode_ts_rwl) != 0, "inode_alloc: freeinode_ts_rwl failed to unlock");
+                ALWAYS_ASSERT(pthread_rwlock_rdlock(&freeinode_ts_rwl) != 0, "inode_alloc: freeinode_ts_rwl failed to unlock");
                 continue;
             }
 
@@ -217,7 +217,7 @@ static int inode_alloc(void) {
  *   - (if creating a directory) No free data blocks.
  */
 int inode_create(inode_type i_type) {
-    ALWAYS_ASSERT(pthread_rwlock_rdlock(freeinode_ts_rwl) != 0, "inode_create: failed to lock");
+    ALWAYS_ASSERT(pthread_rwlock_rdlock(&freeinode_ts_rwl) != 0, "inode_create: failed to lock");
     int inumber = inode_alloc();
     if (inumber == -1) {
         return -1; // no free slots in inode table
@@ -228,7 +228,7 @@ int inode_create(inode_type i_type) {
 
     inode->i_node_type = i_type;
 	inode->hard_link_count = 1;
-    pthread_rwlock_init(inode->lock);
+    pthread_rwlock_init(&inode->lock, NULL);
     switch (i_type) {
     case T_DIRECTORY: {
         // Initializes directory (filling its block with empty entries, labeled
@@ -241,7 +241,7 @@ int inode_create(inode_type i_type) {
 
             // run regular deletion process
             freeinode_ts[inumber] = FREE;
-            ALWAYS_ASSERT(pthread_rwl_unlock(&freeinode_ts_rwl) != 0, "inode_create: failed to unlock");
+            ALWAYS_ASSERT(pthread_rwlock_unlock(&freeinode_ts_rwl) != 0, "inode_create: failed to unlock");
             return -1;
         }
 
@@ -271,7 +271,7 @@ int inode_create(inode_type i_type) {
         PANIC("inode_create: unknown file type");
     }
 
-    ALWAYS_ASSERT(pthread_rwl_unlock(&freeinode_ts_rwl) != 0, "inode_create: failed to unlock");
+    ALWAYS_ASSERT(pthread_rwlock_unlock(&freeinode_ts_rwl) != 0, "inode_create: failed to unlock");
     return inumber;
 }
 
@@ -288,7 +288,7 @@ void inode_delete(int inumber) {
 
     ALWAYS_ASSERT(valid_inumber(inumber), "inode_delete: invalid inumber");
 
-    ALWAYS_ASSERT(pthread_rwlock_wrlock(freeinode_ts_rwl) != 0, "inode_delete: failed to lock");
+    ALWAYS_ASSERT(pthread_rwlock_wrlock(&freeinode_ts_rwl) != 0, "inode_delete: failed to lock");
     ALWAYS_ASSERT(freeinode_ts[inumber] == TAKEN,
                   "inode_delete: inode already freed");
 
@@ -297,7 +297,7 @@ void inode_delete(int inumber) {
     }
     
     freeinode_ts[inumber] = FREE;
-    ALWAYS_ASSERT(pthread_rwlock_unlock(freeinode_ts_rwl) != 0, "inode_delete: failed to unlock");
+    ALWAYS_ASSERT(pthread_rwlock_unlock(&freeinode_ts_rwl) != 0, "inode_delete: failed to unlock");
 }
 
 /**
@@ -340,16 +340,16 @@ int clear_dir_entry(inode_t *inode, char const *sub_name) {
     ALWAYS_ASSERT(dir_entry != NULL,
                   "clear_dir_entry: directory must have a data block");
     
-    ALWAYS_ASSERT(pthread_rwlock_wrlock(inode->lock) != 0, "clear_dir_entry: failed to lock");
+    ALWAYS_ASSERT(pthread_rwlock_wrlock(&inode->lock) != 0, "clear_dir_entry: failed to lock");
     for (size_t i = 0; i < MAX_DIR_ENTRIES; i++) {
         if (!strcmp(dir_entry[i].d_name, sub_name)) {
             dir_entry[i].d_inumber = -1;
             memset(dir_entry[i].d_name, 0, MAX_FILE_NAME);
-            ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0, "clear_dir_entry: failed to unlock");
+            ALWAYS_ASSERT(pthread_rwlock_unlock(&inode->lock) != 0, "clear_dir_entry: failed to unlock");
             return 0;
         }
     }
-    ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0, "clear_dir_entry: failed to unlock");
+    ALWAYS_ASSERT(pthread_rwlock_unlock(&inode->lock) != 0, "clear_dir_entry: failed to unlock");
     return -1; // sub_name not found
 }
 
@@ -384,18 +384,18 @@ int add_dir_entry(inode_t *inode, char const *sub_name, int sub_inumber) {
     ALWAYS_ASSERT(dir_entry != NULL,
                   "add_dir_entry: directory must have a data block");
 
-    ALWAYS_ASSERT(pthread_rwlock_wrlock(inode->lock) != 0, "add_dir_entry: failed to lock");
+    ALWAYS_ASSERT(pthread_rwlock_wrlock(&inode->lock) != 0, "add_dir_entry: failed to lock");
     // Finds and fills the first empty entry
     for (size_t i = 0; i < MAX_DIR_ENTRIES; i++) {
         if (dir_entry[i].d_inumber == -1) {
             dir_entry[i].d_inumber = sub_inumber;
             strncpy(dir_entry[i].d_name, sub_name, MAX_FILE_NAME - 1);
             dir_entry[i].d_name[MAX_FILE_NAME - 1] = '\0';
-            ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0, "addr_dir_entry: failed to unlock");
+            ALWAYS_ASSERT(pthread_rwlock_unlock(&inode->lock) != 0, "addr_dir_entry: failed to unlock");
             return 0;
         }
     }
-    ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0, "add_dir_entry: failed to unlock");
+    ALWAYS_ASSERT(pthread_rwlock_unlock(&inode->lock) != 0, "add_dir_entry: failed to unlock");
     return -1; // no space for entry
 }
 
@@ -412,7 +412,7 @@ int add_dir_entry(inode_t *inode, char const *sub_name, int sub_inumber) {
  *   - inode is not a directory inode.
  *   - Directory does not contain a file named sub_name.
  */
-int find_in_dir(inode_t const *inode, char const *sub_name) {
+int find_in_dir(inode_t *inode, char const *sub_name) {
     ALWAYS_ASSERT(inode != NULL, "find_in_dir: inode must be non-NULL");
     ALWAYS_ASSERT(sub_name != NULL, "find_in_dir: sub_name must be non-NULL");
 
@@ -426,17 +426,17 @@ int find_in_dir(inode_t const *inode, char const *sub_name) {
     ALWAYS_ASSERT(dir_entry != NULL,
                   "find_in_dir: directory inode must have a data block");
 
-    ALWAYS_ASSERT(pthread_rwlock_rdlock(inode->lock) != 0, "add_dir_entry: failed to lock");
+    ALWAYS_ASSERT(pthread_rwlock_rdlock(&inode->lock) != 0, "add_dir_entry: failed to lock");
     // Iterates over the directory entries looking for one that has the target
     // name
     for (int i = 0; i < MAX_DIR_ENTRIES; i++)
         if ((dir_entry[i].d_inumber != -1) &&
             (strncmp(dir_entry[i].d_name, sub_name, MAX_FILE_NAME) == 0)) {
             int sub_inumber = dir_entry[i].d_inumber;
-            ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0, "find_in_dir: failed to unlock");
+            ALWAYS_ASSERT(pthread_rwlock_unlock(&inode->lock) != 0, "find_in_dir: failed to unlock");
             return sub_inumber;
         }
-    ALWAYS_ASSERT(pthread_rwlock_unlock(inode->lock) != 0, "find_in_dir: failed to unlock");
+    ALWAYS_ASSERT(pthread_rwlock_unlock(&inode->lock) != 0, "find_in_dir: failed to unlock");
     return -1; // entry not found
 }
 
@@ -461,7 +461,7 @@ int data_block_alloc(void) {
 
             if (free_blocks[i] == FREE) {
                 free_blocks[i] = TAKEN;
-                rwl_unlock(&freeblocks_rwl);
+                pthread_rwlock_unlock(&freeblocks_rwl);
                 return (int)i;
             } else {
                 ALWAYS_ASSERT(pthread_rwlock_unlock(&freeblocks_rwl) != 0, "data_block_alloc: failed to unlock");
@@ -518,23 +518,23 @@ void *data_block_get(int block_number) {
  */
 int add_to_open_file_table(int inumber, size_t offset) {
     
-     ALWAYS_ASSERT(pthread_mutex_lock(free_open_file_entries_mutex) != NULL,
+     ALWAYS_ASSERT(pthread_mutex_lock(&free_open_file_entries_mutex) != 0,
                                      "add_to_open_file_table: mutex couldn't be locked");
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         if (free_open_file_entries[i] == FREE) {
             free_open_file_entries[i] = TAKEN;
-             ALWAYS_ASSERT(pthread_mutex_lock(open_file_table[i].lock) != NULL,
+             ALWAYS_ASSERT(pthread_mutex_lock(&open_file_table[i].lock) != 0,
                                      "add_to_open_file_table: mutex couldn't be locked");
             open_file_table[i].of_inumber = inumber;
             open_file_table[i].of_offset = offset;
-             ALWAYS_ASSERT(pthread_mutex_unlock(open_file_table[i].lock) != NULL,
+             ALWAYS_ASSERT(pthread_mutex_unlock(&open_file_table[i].lock) != 0,
                                      "add_to_open_file_table: mutex couldn't be unlocked");
-            ALWAYS_ASSERT(pthread_mutex_unlock(free_open_file_entries_mutex) != NULL,
+            ALWAYS_ASSERT(pthread_mutex_unlock(&free_open_file_entries_mutex) != 0,
                                      "add_to_open_file_table: mutex couldn't be unlocked");
             return i;
         }
     }
-    ALWAYS_ASSERT(pthread_mutex_unlock(free_open_file_entries_mutex) != NULL,
+    ALWAYS_ASSERT(pthread_mutex_unlock(&free_open_file_entries_mutex) != 0,
                                      "add_to_open_file_table: mutex couldn't be unlocked");
     return -1;
 }
@@ -546,7 +546,7 @@ int add_to_open_file_table(int inumber, size_t offset) {
  *   - fhandle: file handle to free/close
  */
 void remove_from_open_file_table(int fhandle) {
-    ALWAYS_ASSERT(pthread_mutex_lock(free_open_file_entries_mutex) != NULL,
+    ALWAYS_ASSERT(pthread_mutex_lock(&free_open_file_entries_mutex) != 0,
                                      "remove_from_open_file_table: mutex couldn't be locked");
     ALWAYS_ASSERT(valid_file_handle(fhandle),
                   "remove_from_open_file_table: file handle must be valid");
@@ -555,7 +555,7 @@ void remove_from_open_file_table(int fhandle) {
                   "remove_from_open_file_table: file handle must be taken");
 
     free_open_file_entries[fhandle] = FREE;
-    ALWAYS_ASSERT(pthread_mutex_unlock(free_open_file_entries_mutex) != NULL,
+    ALWAYS_ASSERT(pthread_mutex_unlock(&free_open_file_entries_mutex) != 0,
                                      "remove_from_open_file_table: mutex couldn't be unlocked");
 }
 
