@@ -132,10 +132,12 @@ int state_init(tfs_params params) {
 
     for (size_t i = 0; i < MAX_OPEN_FILES; i++) {
         free_open_file_entries[i] = FREE;
+		tfs_mutex_init(__FUNCTION__, &open_file_table[i].lock);
     }
 
 	tfs_rwlock_init(__FUNCTION__, &freeinode_ts_rwl);
-
+	tfs_rwlock_init(__FUNCTION__, &freeblocks_rwl);
+	tfs_mutex_init(__FUNCTION__, &free_open_file_entries_mutex);
     return 0;
 }
 
@@ -145,11 +147,17 @@ int state_init(tfs_params params) {
  * Returns 0 if succesful, -1 otherwise.
  */
 int state_destroy(void) {
+	tfs_mutex_destroy(__FUNCTION__, &free_open_file_entries_mutex);
+	tfs_rwlock_destroy(__FUNCTION__, &freeblocks_rwl);
 	tfs_rwlock_destroy(__FUNCTION__, &freeinode_ts_rwl);
 
 	for(int i=0; i<INODE_TABLE_SIZE; i++) {
 		tfs_rwlock_destroy(__FUNCTION__, &inode_lock[i]);
 	}
+
+    for (size_t i = 0; i < MAX_OPEN_FILES; i++) {
+        tfs_mutex_destroy(__FUNCTION__, &open_file_table[i].lock);
+    }
 
     free(inode_table);
     free(freeinode_ts);

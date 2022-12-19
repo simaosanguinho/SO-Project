@@ -5,7 +5,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
 
 void tfs_rwlock_init(char const *func_name, pthread_rwlock_t *lock);
 
