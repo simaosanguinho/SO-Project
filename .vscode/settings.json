@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "betterassert.h": "c"
-    }
+		"betterassert.h": "c",
+		"state.h": "c"
+	}
 }

@@ -29,7 +29,6 @@ typedef struct {
     size_t i_size;
     int i_data_block;
 	int hard_link_count; // contador de hardlinks (comeca a 1)
-    pthread_rwlock_t lock; 
 
     // in a more complete FS, more fields could exist here
 } inode_t;
@@ -50,13 +49,15 @@ int state_destroy(void);
 
 size_t state_block_size(void);
 
+pthread_rwlock_t *get_inode_lock(int inum);
+
 int inode_create(inode_type n_type);
 void inode_delete(int inumber);
 inode_t *inode_get(int inumber);
 
-int clear_dir_entry(inode_t *inode, char const *sub_name);
-int add_dir_entry(inode_t *inode, char const *sub_name, int sub_inumber);
-int find_in_dir(inode_t *inode, char const *sub_name);
+int clear_dir_entry(int inum, char const *sub_name);
+int add_dir_entry(int inum, char const *sub_name, int sub_inumber);
+int find_in_dir(int inum, char const *sub_name);
 
 int data_block_alloc(void);
 void data_block_free(int block_number);
