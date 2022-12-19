@@ -1,6 +1,8 @@
 {
     "files.associations": {
 		"betterassert.h": "c",
-		"state.h": "c"
+		"state.h": "c",
+		"locale": "c",
+		"string": "c"
 	}
 }

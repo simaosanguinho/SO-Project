@@ -575,6 +575,27 @@ void remove_from_open_file_table(int fhandle) {
 }
 
 /**
+ * Check if inode is open
+ *
+ * Input:
+ *   - inumber: inode number of the file
+ *
+ * Returns 1 if inumber is open, 0 otherwise
+ */
+int is_open(int inumber) {
+    tfs_mutex_lock(__FUNCTION__, &free_open_file_entries_mutex);
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (free_open_file_entries[i] == TAKEN) {
+			if (open_file_table[i].of_inumber == inumber) {
+				return 1;
+			}
+        }
+    }
+    tfs_mutex_unlock(__FUNCTION__, &free_open_file_entries_mutex);
+    return 0;
+}
+
+/**
  * Obtain pointer to a given entry in the open file table.
  *
  * Input:

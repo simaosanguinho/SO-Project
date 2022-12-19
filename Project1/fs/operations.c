@@ -342,25 +342,37 @@ int tfs_unlink(char const *target) {
         return -1; // invalid inode
     }
 
-    if (clear_dir_entry(ROOT_DIR_INUM, target+1) == -1) {
-        return -1; // error deleting the dir entry
-    }
+
 
     tfs_mutex_lock(__FUNCTION__, &tfs_mutex);
     inode_t *inode = inode_get(inum);
     if (inode->i_node_type == T_SOFTLINK) {
+		if (clear_dir_entry(ROOT_DIR_INUM, target+1) == -1) {
+        	return -1; // error deleting the dir entry
+    	}
         inode_delete(inum);
         tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
         return 0;
-    } else if (inode->hard_link_count == 1) {
-        inode_delete(inum);
-        tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
-        return 0; 
-    } else if (inode->hard_link_count > 1) {
-        inode->hard_link_count--;
-        tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
-        return 0;
-    }
+    } else {
+		if (is_open(inum) == 1) {
+			return -1; // file is opened
+		}
+		if (inode->hard_link_count == 1) {
+			if (clear_dir_entry(ROOT_DIR_INUM, target+1) == -1) {
+				return -1; // error deleting the dir entry
+			}
+			inode_delete(inum);
+			tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
+			return 0; 
+		} else if (inode->hard_link_count > 1) {
+			if (clear_dir_entry(ROOT_DIR_INUM, target+1) == -1) {
+				return -1; // error deleting the dir entry
+			}
+			inode->hard_link_count--;
+			tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
+			return 0;
+		}
+	}
     tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
     return -1;
 }
@@ -379,6 +391,7 @@ int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
 
 	/* create a buffer to store source content */
 	char buffer[BUFFER_SIZE];
+	size_t total_bytes_read = 0;
 	size_t bytes_read;
     ssize_t bytes_write;
 	do {
@@ -396,8 +409,14 @@ int tfs_copy_from_external_fs(char const *source_path, char const *dest_path) {
 			fclose(src);
 			tfs_close(dest);
 			return -1;
-		}		
-	} while (bytes_read >= BUFFER_SIZE*sizeof(char));
+		}
+		total_bytes_read += bytes_read;
+	} while (bytes_read >= BUFFER_SIZE*sizeof(char) && 
+		total_bytes_read <= state_block_size());
+
+	if (total_bytes_read >= state_block_size()) {
+		return -1; /* file bigger than block */
+	}
 
    /* close files */
    fclose(src);
