@@ -167,7 +167,6 @@ int tfs_sym_link(char const *target, char const *link_name) {
         return -1;
     }
 
-
 	inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
     ALWAYS_ASSERT(root_dir_inode != NULL,
                   "tfs_sym_link: root dir inode must exist");
@@ -334,6 +333,7 @@ ssize_t tfs_read(int fhandle, void *buffer, size_t len) {
 }
 
 int tfs_unlink(char const *target) {
+
     if (!valid_pathname(target)) {
         return -1; // invalid pathname
     }
@@ -357,6 +357,7 @@ int tfs_unlink(char const *target) {
     inode_t *inode = inode_get(inum);
     if (inode->i_node_type == T_SOFTLINK) {
 		if (clear_dir_entry(ROOT_DIR_INUM, target+1) == -1) {
+             tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
         	return -1; // error deleting the dir entry
     	}
         inode_delete(inum);
@@ -364,17 +365,21 @@ int tfs_unlink(char const *target) {
         return 0;
     } else {
 		if (is_open(inum) == 1) {
+             tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
 			return -1; // file is opened
 		}
 		if (inode->hard_link_count == 1) {
 			if (clear_dir_entry(ROOT_DIR_INUM, target+1) == -1) {
+                tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
 				return -1; // error deleting the dir entry
 			}
 			inode_delete(inum);
 			tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
 			return 0; 
 		} else if (inode->hard_link_count > 1) {
+            
 			if (clear_dir_entry(ROOT_DIR_INUM, target+1) == -1) {
+                tfs_mutex_unlock(__FUNCTION__, &tfs_mutex);
 				return -1; // error deleting the dir entry
 			}
 			inode->hard_link_count--;

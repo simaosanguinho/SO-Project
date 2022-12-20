@@ -10,7 +10,7 @@ int main() {
     uint8_t const file_contents[] = "Hello World!";
     const char *file_path = "/file1";
     const char *link_path1 = "/file1";
-    const char *link_path2 = "/ks";
+    const char *link_path2 = "/link2";
 
 
     assert(tfs_init(NULL) != -1);
@@ -28,9 +28,6 @@ int main() {
 
     // Create symbolic link - can't do such as the filename is the same
     assert(tfs_sym_link(file_path, link_path1) == -1);
-
-    // Link unusable - was not created
-    //assert(tfs_open(link_path1, TFS_O_APPEND) == -1);
 
     // try creating another sym link to the file with a different name
     assert(tfs_sym_link(file_path, link_path2) != -1);

@@ -9,7 +9,6 @@
 #include <unistd.h>
 #include <pthread.h>
 
-
 /*
  * Persistent FS state
  * (in reality, it should be maintained in secondary memory;
@@ -587,6 +586,7 @@ int is_open(int inumber) {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         if (free_open_file_entries[i] == TAKEN) {
 			if (open_file_table[i].of_inumber == inumber) {
+                tfs_mutex_unlock(__FUNCTION__, &free_open_file_entries_mutex);
 				return 1;
 			}
         }
