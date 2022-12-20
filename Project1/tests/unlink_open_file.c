@@ -18,7 +18,6 @@ int main() {
     // write in file
     assert(tfs_write(fd, file_contents, sizeof(file_contents)) ==
            sizeof(file_contents));
-
     
     // try to unlink an open file - error expected
     assert(tfs_unlink(target_path) == -1);

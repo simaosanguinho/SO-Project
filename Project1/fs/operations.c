@@ -246,17 +246,20 @@ int tfs_close(int fhandle) {
 }
 
 ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
+    
     open_file_entry_t *file = get_open_file_entry(fhandle);
     if (file == NULL) {
         return -1;
     }
 
     tfs_mutex_lock(__FUNCTION__, &file->lock);
+    
+
+    tfs_rwlock_wrlock(__FUNCTION__, get_inode_lock(file->of_inumber));
     //  From the open file table entry, we get the inode
     inode_t *inode = inode_get(file->of_inumber);
     ALWAYS_ASSERT(inode != NULL, "tfs_write: inode of open file deleted");
 
-    tfs_rwlock_wrlock(__FUNCTION__, get_inode_lock(file->of_inumber));
 
     // Determine how many bytes to write
     size_t block_size = state_block_size();
@@ -282,6 +285,7 @@ ssize_t tfs_write(int fhandle, void const *buffer, size_t to_write) {
 
         // Perform the actual write
         memcpy(block + file->of_offset, buffer, to_write);
+        
 
         // The offset associated with the file handle is incremented accordingly
         file->of_offset += to_write;
