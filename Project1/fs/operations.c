@@ -162,6 +162,12 @@ int tfs_sym_link(char const *target, char const *link_name) {
 	if (!valid_pathname(target)) {
         return -1;
     }
+    /* a softlink can't point to itself */
+    if(!strcmp(target, link_name)){
+        printf("BROOOOOOO");
+        return -1;
+    }
+
 
 	inode_t *root_dir_inode = inode_get(ROOT_DIR_INUM);
     ALWAYS_ASSERT(root_dir_inode != NULL,
