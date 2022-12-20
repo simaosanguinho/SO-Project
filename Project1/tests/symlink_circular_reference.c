@@ -23,7 +23,7 @@ int main() {
     assert(tfs_write(fd, file_contents, sizeof(file_contents)) ==
            sizeof(file_contents));
 
-    // Immediately close file
+    // Close file
     assert(tfs_close(fd) != -1);
 
     // Create symbolic link - can't do such as the filename is the same

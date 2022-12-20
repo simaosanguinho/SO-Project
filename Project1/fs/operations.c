@@ -164,7 +164,6 @@ int tfs_sym_link(char const *target, char const *link_name) {
     }
     /* a softlink can't point to itself */
     if(!strcmp(target, link_name)){
-        printf("BROOOOOOO");
         return -1;
     }
 
@@ -348,7 +347,11 @@ int tfs_unlink(char const *target) {
         return -1; // invalid inode
     }
 
-
+    // root dir cannot be deleted
+    if(inum == 0)
+    {
+        return -1;
+    }
 
     tfs_mutex_lock(__FUNCTION__, &tfs_mutex);
     inode_t *inode = inode_get(inum);
