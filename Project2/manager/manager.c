@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "utils.h"
 
 
 static void print_usage() {
@@ -29,7 +30,7 @@ int main(int argc, char **argv) {
     //char* pipe_name = argv[2];
     char* action = argv[3];
 
-
+    // Verification of arguments
     switch(argc){    
         case 5:  
             //char* box_name = argv[4];  
