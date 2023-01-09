@@ -15,46 +15,43 @@
 
 static void print_usage() {
     fprintf(stderr, "usage: \n"
-                    "   manager <register_pipe_name> create <box_name>\n"
-                    "   manager <register_pipe_name> remove <box_name>\n"
-                    "   manager <register_pipe_name> list\n");
+                    "   manager <register_pipe_name> <pipe_name> create <box_name>\n"
+                    "   manager <register_pipe_name> <pipe_name> remove <box_name>\n"
+                    "   manager <register_pipe_name> <pipe_name> list\n");
+}
+
+/* verify arguments */
+int verify_arguments(int argc){
+    if(argc != 4 && argc != 5){
+        print_usage();
+        exit(EXIT_FAILURE);
+    }
+    return 0;
 }
 
 int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
-    //print_usage();
-    //WARN("unimplemented"); // TODO: implement
+	/* Verify and store arguments given */
+	verify_arguments(argc);
 
-    //char* register_pipe_name = argv[1];
-    //char* pipe_name = argv[2];
+    char* register_pipe_name = argv[1];
+	char* pipe_name = argv[2];
     char* action = argv[3];
 
-    // Verification of arguments
-    switch(argc){    
-        case 5:  
-            //char* box_name = argv[4];  
-            if(!strcmp(action, "create")){
-                // create
-                break;
-            }
-            if(!strcmp(action, "remove")){
-                // remove
-                break;
-            }
-            break;   
-        case 4:   
-            if(!strcmp(action, "list")){
-                // list boxes
-                break;
-            }    
-            break;    
+	if (strcmp(action, "create") == 0) {
+		char* box_name = argv[4];
+			(void) box_name;
+	} else if (strcmp(action, "remove") == 0) {
+		char* box_name = argv[4];
+			(void) box_name;
+	} else if (strcmp(action, "list") == 0) {
+		// do list
+	} else {
+		print_usage();
+		exit(EXIT_FAILURE);	
+	}
 
-        // possible error
-        default:
-            print_usage();
-
-    }   
+	(void) register_pipe_name;
+	(void) pipe_name;
 
 
     return -1;

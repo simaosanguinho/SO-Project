@@ -1,6 +1,6 @@
 #include "logging.h"
 #include "operations.h"
-#include "utils.c"
+#include "utils.h"
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -18,11 +18,10 @@ void print_usage(){
 }
 
 /* verify arguments */
-int verify_arguments(int argc, char* argv[]){
-
+int verify_arguments(int argc){
     if(argc != 4){
         print_usage();
-        return -1;
+        exit(EXIT_FAILURE);
     }
     return 0;
 }
@@ -35,7 +34,7 @@ void send_register_request(char* register_pipe_name, char* pipe_name, char* box_
     strcpy(register_request.pname, pipe_name);
     strcpy(register_request.bname, box_name);
 
-     // Open register pipe for reading
+     // Open register pipe for writing
     int register_pipe = open(register_pipe_name, O_WRONLY);
     if (register_pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
@@ -43,7 +42,7 @@ void send_register_request(char* register_pipe_name, char* pipe_name, char* box_
     }
 
     // write request in the pipe
-    size_t written = write(register_pipe, register_request, sizeof(register_request));
+    ssize_t written = write(register_pipe, (void*)&register_request, sizeof(register_request));
     assert(written == 1);
 
     // close pipe
@@ -80,33 +79,33 @@ int sub_init(char* register_pipe_name, char* pipe_name, char* box_name){
     return register_pipe;
 }
 
+/*
 int read_past_messages() {
     int f = tfs_open(box_name, 0);
     char *buffer;
     if (f==-1) {return -1;}
     tfs_read(f, buffer)
 }
+*/
 
 
 int main(int argc, char **argv) {
-    
+	/* Verify and store arguments given */
+	verify_arguments(argc);
     char* register_pipe_name = argv[1];
     char* pipe_name = argv[2];
     char* box_name = argv[3];
 
-    //verify arguments
-    verify_arguments(argc, argv);
-
     //initialise client
-    sub_init(register_pipe_name, pipe_name, box_name);
+    int fsub = sub_init(register_pipe_name, pipe_name, box_name);
+
+
+
 
     //read past messages
 
 
     // read new messages
-    while(true) {
-        
-    };
 
 
 
