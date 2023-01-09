@@ -27,7 +27,8 @@ int verify_arguments(int argc){
     return 0;
 }
 
-// igual ao lab das pipes
+
+/* send message to mbroker */
 void send_msg(int fpub, char const *str) {
     size_t len = strlen(str);
     size_t written = 0;
@@ -44,12 +45,10 @@ void send_msg(int fpub, char const *str) {
 }
 
 
-
-
 /* initializes publisher - create publisher named pipe */
 void pub_init(char* pipe_name){
     // Remove pipe if it does not exist
-    if (unlink(pipe_name) != 0) {
+    if (unlink(pipe_name) != 0 && errno != ENOENT) {
         fprintf(stderr, "[ERR]: unlink(%s) failed: %s\n", pipe_name,
         strerror(errno));
         exit(EXIT_FAILURE);
@@ -77,7 +76,7 @@ int main(int argc, char **argv) {
 
 	/* Publisher register request */
 	char request_regist[300];
-	fprintf(request_regist, "[1|%s|%s]", pipe_name, box_name);
+	sprintf(request_regist, "[1|%s|%s]", pipe_name, box_name);
 
 	/* Send request */
 	int register_pipe = open(register_pipe_name, O_WRONLY);
@@ -85,48 +84,26 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-    ssize_t written = write(register_pipe, request_regist, sizeof(request_regist));
-    assert(written == 1);
+    write(register_pipe, request_regist, sizeof(request_regist));
+ 
+
+    close(register_pipe);
 
 
-
-    /* Wait for read */
+    /* Wait for mbroken to read pipe */
     int fpub = open(pipe_name, O_WRONLY);
     if (fpub == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-
-
-
-
-    close(register_pipe);
-
-	/*
-	
-		verificar se ja ha um publisher ligado
-
-	*/
-    
-    char* curr_message = NULL;
-    // verificar condicao
+	// WRITE MESSAGE
+	char* curr_message = NULL;
     while(scanf("%s\n", curr_message) != EOF){
         send_msg(fpub, curr_message);
     }
-    
 
 
-
-    //tfs_close(pub_box);
     close(fpub);
-
-    //WARN("unimplemented"); // TODO: implement
     return -1;
 }
-
-/* TO DO */
-/**
- * verify if 
- * 
- */

@@ -33,7 +33,7 @@ int verify_arguments(int argc){
 int mbroker_init(char* register_pipe_name){
     
 	// Remove pipe if it does not exist
-    if (unlink(register_pipe_name) != 0) {
+    if (unlink(register_pipe_name) != 0 && errno != ENOENT) {
         fprintf(stderr, "[ERR]: unlink(%s) failed: %s\n", register_pipe_name,
         strerror(errno));
         exit(EXIT_FAILURE);
@@ -65,12 +65,25 @@ int main(int argc, char **argv) {
     char* register_pipe_name = argv[1];
     max_sessions = atoi(argv[2]);
 
-
-
     int register_pipe = mbroker_init(register_pipe_name);
     
+    while (true) {
+        char buffer[500];
+        ssize_t ret = read(register_pipe, buffer, 500 - 1);
+        if (ret == 0) {
+            // ret == 0 indicates EOF
+            fprintf(stderr, "[INFO]: pipe closed\n");
+            return 0;
+        } else if (ret == -1) {
+            // ret == -1 indicates error
+            fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+            exit(EXIT_FAILURE);
+        }
 
-    close(register_pipe);
+        fprintf(stderr, "[INFO]: received %zd B\n", ret);
+        buffer[ret] = 0;
+        fputs(buffer, stdout);
+    }
 
     return -1;
 }
