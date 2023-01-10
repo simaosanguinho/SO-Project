@@ -13,6 +13,8 @@
 #include <unistd.h>
 #include "utils.h"
 
+#define BUFFER_SIZE 1024
+
 
 void print_usage(){
     fprintf(stderr, "usage: pub <register_pipe_name> <pipe_name> <box_name>\n");
@@ -27,21 +29,53 @@ int verify_arguments(int argc){
     return 0;
 }
 
+/* Send register code */
+void register_publisher(char *register_pipe_name, char pipe_name[256], char box_name[32]) {
+	/* Format message request */
+	uint8_t code = '1';
+	char message_request[500];
+	sprintf(message_request, "%c|%s|%s", code, pipe_name, box_name);
 
-/* send message to mbroker */
-void send_msg(int fpub, char const *str) {
-    size_t len = strlen(str);
-    size_t written = 0;
-
-    while (written < len) {
-        ssize_t ret = write(fpub, str + written, len - written);
-        if (ret < 0) {
-            fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
-            exit(EXIT_FAILURE);
-        }
-
-        written += (size_t) ret;
+	/* Send request */
+	int register_pipe = open(register_pipe_name, O_WRONLY);
+	if (register_pipe == -1) {
+        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
     }
+
+    if (write(register_pipe, message_request, sizeof(message_request)) == -1) {
+        fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+	}
+    close(register_pipe);
+}
+
+
+/* read stdin and send it to mbroker, until reaches EOF or mbroker closes pipe */
+void send_messages(int name_pipe) {
+	char buffer[BUFFER_SIZE];
+
+	while (true) {
+		memset(buffer, '\0', BUFFER_SIZE);
+		if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
+			break; /* EOF */
+		}
+
+		size_t newline_i = strcspn(buffer, "\n");
+		buffer[newline_i] = '\0';
+		
+		size_t len = strlen(buffer);
+		size_t written = 0;
+		while (written < len) {
+			ssize_t read = write(name_pipe, buffer + written, len - written);
+			if (read < 0) {
+				exit(EXIT_FAILURE);
+			} else if (read == 0) {
+				return;
+			}
+			written += (size_t) read;
+		}
+	}
 }
 
 
@@ -74,21 +108,7 @@ int main(int argc, char **argv) {
 	/* create client name_pipe */
 	pub_init(pipe_name);
 
-	/* Publisher register request */
-	char request_regist[300];
-	sprintf(request_regist, "1|%s|%s", pipe_name, box_name);
-
-	/* Send request */
-	int register_pipe = open(register_pipe_name, O_WRONLY);
-	if (register_pipe == -1) {
-        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    write(register_pipe, request_regist, sizeof(request_regist));
- 
-
-    close(register_pipe);
-
+	register_publisher(register_pipe_name, pipe_name, box_name);
 
     /* Wait for mbroken to read pipe */
     int fpub = open(pipe_name, O_WRONLY);
@@ -97,12 +117,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-	// WRITE MESSAGE
-	char* curr_message = NULL;
-    while(scanf("%s\n", curr_message) != EOF){
-        send_msg(fpub, curr_message);
-    }
-
+	send_messages(fpub);
 
     close(fpub);
     return -1;
