@@ -70,8 +70,8 @@ int sub_init(char* register_pipe_name, char* pipe_name, char* box_name){
         exit(EXIT_FAILURE);
     }
 
-    // Open pipe for reading
-    int register_pipe = open(pipe_name, O_RDONLY);
+    // Open pipe for write
+    int register_pipe = open(register_pipe_name, O_WRONLY);
     if (register_pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);

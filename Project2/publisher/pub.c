@@ -76,7 +76,7 @@ int main(int argc, char **argv) {
 
 	/* Publisher register request */
 	char request_regist[300];
-	sprintf(request_regist, "[1|%s|%s]", pipe_name, box_name);
+	sprintf(request_regist, "1|%s|%s", pipe_name, box_name);
 
 	/* Send request */
 	int register_pipe = open(register_pipe_name, O_WRONLY);

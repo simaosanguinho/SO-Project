@@ -54,6 +54,17 @@ int mbroker_init(char* register_pipe_name){
     return register_pipe;
 }
 
+void process_serialization(char *message) {
+	char *args = strtok(argsStr, "|");
+	if (strcmp(args[0], "1") == 0) {
+		char name_pipe[256];
+		char box_name[32];
+		strcpy(name_pipe, args[1]);
+		strcpy(box_name, args[2]);
+		fprintf(stderr, "[RECEIVED]: %s %s\n", name_pipe, box_name);
+	}
+
+}
 
 
 int main(int argc, char **argv) {
@@ -70,19 +81,15 @@ int main(int argc, char **argv) {
     while (true) {
         char buffer[500];
         ssize_t ret = read(register_pipe, buffer, 500 - 1);
-        if (ret == 0) {
-            // ret == 0 indicates EOF
-            fprintf(stderr, "[INFO]: pipe closed\n");
-            return 0;
-        } else if (ret == -1) {
+        if (ret == -1) {
             // ret == -1 indicates error
             fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
             exit(EXIT_FAILURE);
-        }
-
-        fprintf(stderr, "[INFO]: received %zd B\n", ret);
-        buffer[ret] = 0;
-        fputs(buffer, stdout);
+        } else if (ret != 0) {
+			buffer[ret] = 0;
+			fprintf(stderr, "[RECEIVED]: %s\n", buffer);
+			process_serialization(buffer);
+		}
     }
 
     return -1;
