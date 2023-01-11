@@ -13,6 +13,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#define BUFFER_SIZE 1024
+
+int messages_received = 0;
+
+
 void print_usage(){
     fprintf(stderr, "usage: sub <register_pipe_name> <pipe_name> <box_name>\n");
 }
@@ -26,89 +31,85 @@ int verify_arguments(int argc){
     return 0;
 }
 
-void send_register_request(char* register_pipe_name, char* pipe_name, char* box_name){
 
-    // create request
-    request register_request;
-    register_request.code = 2;
-    strcpy(register_request.pname, pipe_name);
-    strcpy(register_request.bname, box_name);
+void register_subscriber(char *register_pipe_name, char pipe_name[256], char box_name[32]) {
+	/* Format message request */
+	uint8_t code = '2';
+	char message_request[BUFFER_SIZE];
+	sprintf(message_request, "%c|%s|%s", code, pipe_name, box_name);
 
-     // Open register pipe for writing
-    int register_pipe = open(register_pipe_name, O_WRONLY);
-    if (register_pipe == -1) {
+	/* Send request */
+	int register_pipe = open(register_pipe_name, O_WRONLY);
+	if (register_pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-    // write request in the pipe
-    ssize_t written = write(register_pipe, (void*)&register_request, sizeof(register_request));
-    assert(written == 1);
-
-    // close pipe
-    close(register_pipe);
-
+    if (write(register_pipe, message_request, strlen(message_request)) == -1) {
+        fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+	}
 }
 
 
-/* returns file descriptor of pipe that represents sub*/
-int sub_init(char* register_pipe_name, char* pipe_name, char* box_name){
+void read_messages(int name_pipe) {
+	while (true) {
+		char buffer[BUFFER_SIZE];
+		memset(buffer, '\0', BUFFER_SIZE);
+		ssize_t ret = read(name_pipe, buffer, BUFFER_SIZE);
+		if (ret == -1) {
+			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		} else if (ret==0) {
+			break;
+		} else {
+			buffer[ret] = 0;
+			char code[3];
+			strtok(code, "|");
+			fprintf(stdout, "%s\n", strtok(NULL, "|"));
+		}
+	}
+}
 
-    // send a request to be registered in the server
-    send_register_request(register_pipe_name, pipe_name, box_name);
 
-    // Remove pipe if it does not exist
-    if (unlink(pipe_name) != 0) {
+void sub_init(char* pipe_name) {
+	// Remove pipe if it does not exist
+	if (unlink(pipe_name) != 0 && errno != ENOENT) {
         fprintf(stderr, "[ERR]: unlink(%s) failed: %s\n", pipe_name,
         strerror(errno));
         exit(EXIT_FAILURE);
-    }
+	}
 
-    // Create pipe
+	// Create pipe
     if (mkfifo(pipe_name, 0640) != 0) {
         fprintf(stderr, "[ERR]: mkfifo failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-
-    // Open pipe for write
-    int register_pipe = open(register_pipe_name, O_WRONLY);
-    if (register_pipe == -1) {
-        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    return register_pipe;
 }
-
-/*
-int read_past_messages() {
-    int f = tfs_open(box_name, 0);
-    char *buffer;
-    if (f==-1) {return -1;}
-    tfs_read(f, buffer)
-}
-*/
 
 
 int main(int argc, char **argv) {
 	/* Verify and store arguments given */
 	verify_arguments(argc);
     char* register_pipe_name = argv[1];
-    char* pipe_name = argv[2];
-    char* box_name = argv[3];
+    char pipe_name[256];
+	char box_name[32];
+	strcpy(pipe_name, argv[2]);
+	strcpy(box_name, argv[3]);
 
-    //initialise client
-    int fsub = sub_init(register_pipe_name, pipe_name, box_name);
+	/* create client name_pipe */
+    sub_init(pipe_name);
 
+	register_subscriber(register_pipe_name, pipe_name, box_name);
 
+	/* Wait for mbroker to write pipe */
+	int fsub = open(pipe_name, O_RDONLY);
+    if (fsub == -1) {
+        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
-
-    //read past messages
-
-
-    // read new messages
-
-
-
+	read_messages(fsub);
 
     close(fsub);
 

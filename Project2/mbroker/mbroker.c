@@ -76,6 +76,23 @@ int register_pub(char *name_pipe, char *box_name) {
 	return -1;
 }
 
+int register_sub(char *name_pipe, char *box_name) {
+	(void) box_name;
+	// Open pipe for write
+    int pub_pipe = open(name_pipe, O_WRONLY);
+    if (pub_pipe == -1) {
+        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+	// VERIFICAR SE PODE HAVER CONEXÃO
+	if (curr_sessions < max_sessions) {
+		curr_sessions++;
+		return pub_pipe;
+	}
+	return -1;
+}
+
 void read_publisher(int pub_pipe) {
 	while (true) {
 		char buffer[BUFFER_SIZE];
@@ -90,7 +107,7 @@ void read_publisher(int pub_pipe) {
 		} else {
 			buffer[ret] = 0;
 			fprintf(stderr, "[PUBLISHER] %s\n", buffer);
-			/* ENVIAR MENSAGEM PARA O LOCAL APROPRIADO */
+			/* ENVIAR MENSAGEM NO LOCAL APROPRIADO */
 		}
 	}
 }
@@ -107,6 +124,16 @@ void process_serialization(char *message) {
 		int pub_pipe = register_pub(name_pipe, box_name);
 		if (pub_pipe != -1) {
 			read_publisher(pub_pipe);
+		}
+		close(pub_pipe);
+	} else if (strcmp(args, "2") == 0) {
+		char name_pipe[256];
+		char box_name[32];
+		strcpy(name_pipe, strtok(NULL, "|"));
+		strcpy(box_name, strtok(NULL, "|"));
+		int pub_pipe = register_sub(name_pipe, box_name);
+		if (pub_pipe != -1) {
+			//read_publisher(pub_pipe);
 		}
 		close(pub_pipe);
 	}

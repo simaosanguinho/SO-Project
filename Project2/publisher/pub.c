@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
 
 	register_publisher(register_pipe_name, pipe_name, box_name);
 
-    /* Wait for mbroken to read pipe */
+    /* Wait for mbroker to read pipe */
     int fpub = open(pipe_name, O_WRONLY);
     if (fpub == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
