@@ -33,7 +33,7 @@ int verify_arguments(int argc){
 void register_publisher(char *register_pipe_name, char pipe_name[256], char box_name[32]) {
 	/* Format message request */
 	uint8_t code = '1';
-	char message_request[500];
+	char message_request[BUFFER_SIZE];
 	sprintf(message_request, "%c|%s|%s", code, pipe_name, box_name);
 
 	/* Send request */
@@ -43,7 +43,7 @@ void register_publisher(char *register_pipe_name, char pipe_name[256], char box_
         exit(EXIT_FAILURE);
     }
 
-    if (write(register_pipe, message_request, sizeof(message_request)) == -1) {
+    if (write(register_pipe, message_request, strlen(message_request)) == -1) {
         fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
 	}
@@ -54,6 +54,7 @@ void register_publisher(char *register_pipe_name, char pipe_name[256], char box_
 /* read stdin and send it to mbroker, until reaches EOF or mbroker closes pipe */
 void send_messages(int name_pipe) {
 	char buffer[BUFFER_SIZE];
+	
 
 	while (true) {
 		memset(buffer, '\0', BUFFER_SIZE);
@@ -63,18 +64,18 @@ void send_messages(int name_pipe) {
 
 		size_t newline_i = strcspn(buffer, "\n");
 		buffer[newline_i] = '\0';
-		
-		size_t len = strlen(buffer);
-		size_t written = 0;
-		while (written < len) {
-			ssize_t read = write(name_pipe, buffer + written, len - written);
-			if (read < 0) {
-				exit(EXIT_FAILURE);
-			} else if (read == 0) {
-				return;
-			}
-			written += (size_t) read;
+
+		uint8_t code = '8';
+		char message_publisher[BUFFER_SIZE];
+		sprintf(message_publisher, "%c|%s", code, buffer);
+
+		ssize_t read = write(name_pipe, message_publisher, strlen(message_publisher));
+		if (read < 0) {
+			exit(EXIT_FAILURE);
+		} else if (read == 0) {
+			return;
 		}
+		
 	}
 }
 
