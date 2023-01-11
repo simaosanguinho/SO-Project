@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 //CONSTANTES
+
+#define BUFFER_SIZE 1024
+
 #define MAXP 256
 #define MAXB 32
 

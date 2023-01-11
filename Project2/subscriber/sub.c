@@ -16,7 +16,7 @@
 #define BUFFER_SIZE 1024
 
 int messages_received = 0;
-
+char pipe_name[256];
 
 void print_usage(){
     fprintf(stderr, "usage: sub <register_pipe_name> <pipe_name> <box_name>\n");
@@ -32,7 +32,7 @@ int verify_arguments(int argc){
 }
 
 
-void register_subscriber(char *register_pipe_name, char pipe_name[256], char box_name[32]) {
+void register_subscriber(char *register_pipe_name, char box_name[32]) {
 	/* Format message request */
 	uint8_t code = '2';
 	char message_request[BUFFER_SIZE];
@@ -72,7 +72,7 @@ void read_messages(int name_pipe) {
 }
 
 
-void sub_init(char* pipe_name) {
+void sub_init() {
 	// Remove pipe if it does not exist
 	if (unlink(pipe_name) != 0 && errno != ENOENT) {
         fprintf(stderr, "[ERR]: unlink(%s) failed: %s\n", pipe_name,
@@ -92,15 +92,14 @@ int main(int argc, char **argv) {
 	/* Verify and store arguments given */
 	verify_arguments(argc);
     char* register_pipe_name = argv[1];
-    char pipe_name[256];
 	char box_name[32];
 	strcpy(pipe_name, argv[2]);
 	strcpy(box_name, argv[3]);
 
 	/* create client name_pipe */
-    sub_init(pipe_name);
+    sub_init();
 
-	register_subscriber(register_pipe_name, pipe_name, box_name);
+	register_subscriber(register_pipe_name, box_name);
 
 	/* Wait for mbroker to write pipe */
 	int fsub = open(pipe_name, O_RDONLY);

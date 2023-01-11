@@ -12,8 +12,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "utils.h"
+#include <signal.h>
 
-#define BUFFER_SIZE 1024
+char pipe_name[256];
 
 
 void print_usage(){
@@ -30,7 +31,7 @@ int verify_arguments(int argc){
 }
 
 /* Send register code */
-void register_publisher(char *register_pipe_name, char pipe_name[256], char box_name[32]) {
+void register_publisher(char *register_pipe_name, char box_name[32]) {
 	/* Format message request */
 	uint8_t code = '1';
 	char message_request[BUFFER_SIZE];
@@ -81,7 +82,7 @@ void send_messages(int name_pipe) {
 
 
 /* initializes publisher - create publisher named pipe */
-void pub_init(char* pipe_name){
+void pub_init(){
     // Remove pipe if it does not exist
     if (unlink(pipe_name) != 0 && errno != ENOENT) {
         fprintf(stderr, "[ERR]: unlink(%s) failed: %s\n", pipe_name,
@@ -97,19 +98,36 @@ void pub_init(char* pipe_name){
 }
 
 
+/* Removes name pipe from file system */
+static void sig_handler(int sig) {
+	if (sig == SIGINT) {
+		if (signal(SIGINT, sig_handler) == SIG_ERR) {
+			exit(EXIT_FAILURE);
+		}
+	}
+	if (unlink(pipe_name) != 0) {
+        exit(EXIT_FAILURE);
+    }
+	exit(EXIT_SUCCESS);
+}
+
+
 int main(int argc, char **argv) {
 	/* Verify and store arguments given */
 	verify_arguments(argc);
     char* register_pipe_name = argv[1];
-    char pipe_name[256];
 	char box_name[32];
 	strcpy(pipe_name, argv[2]);
 	strcpy(box_name, argv[3]);
 
 	/* create client name_pipe */
-	pub_init(pipe_name);
+	pub_init();
 
-	register_publisher(register_pipe_name, pipe_name, box_name);
+	if (signal(SIGINT, sig_handler) == SIG_ERR) {
+		exit(EXIT_FAILURE);
+	}
+
+	register_publisher(register_pipe_name, box_name);
 
     /* Wait for mbroker to read pipe */
     int fpub = open(pipe_name, O_WRONLY);

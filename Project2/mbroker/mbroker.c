@@ -12,12 +12,81 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #define BUFFER_SIZE 1024
 
 int max_sessions = 0;
 int curr_sessions = 0;
 int register_pipe; /* pipe opened */
+
+
+/*             */
+/*     BOX     */
+/*             */
+
+typedef struct box {
+	char box_name[32];
+	int publisher;
+	int *subscribers;
+	pthread_cond_t condition;
+	struct box* next;
+} Box;
+
+Box* box_list = NULL;
+
+void insert_box(char box_name[32]) {
+	Box* new_box = (Box*)malloc(sizeof(Box));
+	int subscribers[0];
+	new_box->subscribers = subscribers;
+	strcpy(new_box->box_name, box_name);
+	new_box->publisher = -1;
+	new_box->next = box_list;
+	pthread_cond_init(&new_box->condition, NULL);
+	box_list = new_box;
+}
+
+void delete_box(char box_name[32]) {
+	Box* temp = box_list;
+	Box* prev = NULL;
+	if (temp != NULL && strcmp(temp->box_name, box_name) == 0) {
+		box_list = temp->next;
+		free(temp);
+		return;
+	}
+	while (temp != NULL && strcmp(temp->box_name, box_name) != 0) {
+        prev = temp;
+        temp = temp->next;
+    }
+    if (temp == NULL) return;
+    prev->next = temp->next;
+    free(temp);
+}
+
+/*
+void print_list() {
+	Box* temp = box_list;
+    while (temp != NULL) {
+        // PROCESSAR DADOS
+        temp = temp->next;
+    }
+}
+*/
+
+Box* search_boxes(char box_name[32]) {
+	Box* temp = box_list;
+	if (temp == NULL) {
+		return temp;
+	}
+    while (temp != NULL && strcmp(temp->box_name, box_name) != 0) {
+        temp = temp->next;
+    }
+	if (strcmp(temp->box_name, box_name) == 0) {
+		return temp;
+	}
+	return NULL;
+}
+
 
 
 
@@ -59,39 +128,36 @@ int mbroker_init(char* register_pipe_name){
     return register_pipee;
 }
 
+
+/*                   */
+/*     PUBLISHER     */
+/*                   */
+
+/* Check if box exists, doesn't have other publisher
+	and doesn't exceed session limits */
 int register_pub(char *name_pipe, char *box_name) {
-	(void) box_name;
-	// Open pipe for read
+
+	Box* box = search_boxes(box_name);
+
     int pub_pipe = open(name_pipe, O_RDONLY);
     if (pub_pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-	// VERIFICAR SE PODE HAVER CONEXÃO
-	if (curr_sessions < max_sessions) {
-		curr_sessions++;
-		return pub_pipe;
+	if (box == NULL) {
+		close(pub_pipe);
+		return -1;
+	} else if (box->publisher != -1) {
+		close(pub_pipe);
+		return -1;
+	} else {
+		box->publisher = pub_pipe;
 	}
-	return -1;
+
+	return pub_pipe;
 }
 
-int register_sub(char *name_pipe, char *box_name) {
-	(void) box_name;
-	// Open pipe for write
-    int pub_pipe = open(name_pipe, O_WRONLY);
-    if (pub_pipe == -1) {
-        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-	// VERIFICAR SE PODE HAVER CONEXÃO
-	if (curr_sessions < max_sessions) {
-		curr_sessions++;
-		return pub_pipe;
-	}
-	return -1;
-}
 
 void read_publisher(int pub_pipe) {
 	while (true) {
@@ -112,6 +178,88 @@ void read_publisher(int pub_pipe) {
 	}
 }
 
+
+/*                    */
+/*     SUBSCRIBER     */
+/*                    */
+
+int register_sub(char *name_pipe, char *box_name) {
+	(void) box_name;
+	// Open pipe for write
+    int pub_pipe = open(name_pipe, O_WRONLY);
+    if (pub_pipe == -1) {
+        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+	// VERIFICAR SE PODE HAVER CONEXÃO
+	if (curr_sessions < max_sessions) {
+		curr_sessions++;
+		return pub_pipe;
+	}
+	return -1;
+}
+
+void write_subscriber(int pub_pipe) {
+	while (true) {
+		char buffer[BUFFER_SIZE];
+		memset(buffer, '\0', BUFFER_SIZE);
+
+		ssize_t ret = write(pub_pipe, buffer, BUFFER_SIZE);
+		if (ret == -1) {
+			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		} else if (ret==0) {
+			curr_sessions--;
+			break;
+		} else {
+			buffer[ret] = 0;
+			fprintf(stderr, "[PUBLISHER] %s\n", buffer);
+			/* ENVIAR MENSAGEM NO LOCAL APROPRIADO */
+		}
+	}
+}
+
+/*                 */
+/*     MANAGER     */
+/*                 */
+
+int register_new_box(char *name_pipe, char *box_name) {
+	// Open pipe for write
+    int pub_pipe = open(name_pipe, O_WRONLY);
+    if (pub_pipe == -1) {
+        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+	// VERIFICAR SE PODE HAVER CONEXÃO
+	if (curr_sessions > max_sessions) {
+		return -1;
+	}
+
+	/* Caixa já existe */
+	if (search_boxes(box_name) != NULL) {
+		// RETORNAR ERRO
+	}
+
+	int fhandler = tfs_open(box_name, TFS_O_CREAT);
+	
+	if (fhandler == -1) {
+		// RETORNAR ERRO
+	}
+
+	insert_box(box_name);
+
+	tfs_close(fhandler);
+
+	return -1;
+}
+
+
+
+
+
+
 void process_serialization(char *message) {
 	char *args = strtok(message, "|");
 
@@ -124,20 +272,28 @@ void process_serialization(char *message) {
 		int pub_pipe = register_pub(name_pipe, box_name);
 		if (pub_pipe != -1) {
 			read_publisher(pub_pipe);
+			close(pub_pipe);
 		}
-		close(pub_pipe);
+	/* Register Subscriber */
 	} else if (strcmp(args, "2") == 0) {
 		char name_pipe[256];
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));
 		strcpy(box_name, strtok(NULL, "|"));
-		int pub_pipe = register_sub(name_pipe, box_name);
-		if (pub_pipe != -1) {
-			//read_publisher(pub_pipe);
+		int sub_pipe = register_sub(name_pipe, box_name);
+		if (sub_pipe != -1) {
+			//write_subscriber(pub_pipe);
 		}
-		close(pub_pipe);
+		close(sub_pipe);
+	/* Create Box */
+	} else if (strcmp(args, "3") == 0) {
+		char name_pipe[256];
+		char box_name[32];
+		strcpy(name_pipe, strtok(NULL, "|"));
+		strcpy(box_name, strtok(NULL, "|"));
+		int box_pipe = register_new_box(name_pipe, box_name);
+		close(box_pipe);
 	}
-
 }
 
 
