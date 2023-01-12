@@ -65,8 +65,8 @@ void close_register_pipe(int register_pipe){
 	close(register_pipe);
 }
 
-
-void request_box(uint8_t code, char* box_name, char* pipe_name, int register_pipe){
+// tries to create or destroy a box 
+void create_destroy_box(uint8_t code, char* box_name, char* pipe_name, int register_pipe){
 	/* Format message request */
 	char message_request[BUFFER_SIZE];
 	sprintf(message_request, "%c|%s|%s", code, pipe_name, box_name);
@@ -82,10 +82,38 @@ void request_box(uint8_t code, char* box_name, char* pipe_name, int register_pip
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
+
+	char buffer[BUFFER_SIZE];
+	char error_message[BUFFER_SIZE];
+	int32_t return_code;
+
+	ssize_t ret = read(pipe, buffer, BUFFER_SIZE);
+	if (ret == -1) {
+			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+	}
+
+	char *args = strtok(buffer, "|");
+			return_code = (int32_t) atoi(strtok(NULL, "|"));
+			strcpy(error_message, strtok(NULL, "|"));
+
+	// box was successfully created or destroyed
+	if(return_code != -1)
+		fprintf(stdout, "OK\n");
+	 
+	else
+		fprintf(stdout, "ERROR %s\n", error_message);
+	
 	close(pipe);
+
 }
 
 
+
+// SIMAO - USAR LISTA LIGADA PARA ORDENAR AS BOXES
+
+
+//list the boxes in the server
 void list_boxes(char* pipe_name, int register_pipe){
 	/* Format message request */
 	uint8_t code = REQUEST_BOX_LIST;
@@ -99,12 +127,50 @@ void list_boxes(char* pipe_name, int register_pipe){
 	}
     close_register_pipe(register_pipe);
 
-	// WAIT THE REQUEST TO BE ANSWERED - the pipes are blocked when reading
+	// Open register pipe for writing
+    int pipe = open(pipe_name, O_RDONLY);
+    if (pipe == -1) {
+        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+	do {
+		uint8_t last;
+		char buffer[BUFFER_SIZE];
+		char box_name[32];
+		uint64_t box_size[64];
+		uint64_t npublishers, n_subscribers;
+
+		memset(buffer, '\0', BUFFER_SIZE);
+		ssize_t ret = read(pipe, buffer, BUFFER_SIZE);
+		if (ret == -1) {
+			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		} else {
+			char *args = strtok(buffer, "|");
+			strcpy(last , strtok(NULL, "|"));
+			strcpy(box_name, strtok(NULL, "|"));
+			box_size = (uint64_t) atoll(strtok(NULL, "|"));
+			strcpy(box_size, strtok(NULL, "|"));
+			strcpy(n_publishers, strtok(NULL, "|"));
+			strcpy(n_subscribers, strtok(NULL, "|"));
+
+			// no boxes were registered in the mbroker
+			if (strlen(box_name) == 0) {
+				fprintf(stdout, "NO BOXES FOUND\n");
+			}
+			
+			fprintf(stdout, "%s %zu %zu %zu\n", 
+						box_name, box_size, n_publishers, n_subscribers);
+		}
+		
+	} while (last !='1');
 
 	// reopen the pipe
 	// read the list of boxes
 	// print them
 	//close pipe
+	close(pipe);
 
 }
 
@@ -125,7 +191,7 @@ int main(int argc, char **argv) {
 
 	if (strcmp(action, "create") == 0) {
 		char* box_name = argv[4];
-		request_box('3', box_name, pipe_name, register_pipe);
+		create_destroy_box('3', box_name, pipe_name, register_pipe);
 	} else if (strcmp(action, "remove") == 0) {
 		char* box_name = argv[4];
 		request_box('5', box_name, pipe_name, register_pipe);

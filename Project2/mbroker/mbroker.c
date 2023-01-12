@@ -14,11 +14,10 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#define BUFFER_SIZE 1024
-
 int max_sessions = 0;
 int curr_sessions = 0;
 int register_pipe; /* pipe opened */
+int n_boxes = 0;
 
 typedef struct box {
 	char box_name[32];
@@ -200,6 +199,8 @@ int register_sub(char *name_pipe, char *box_name) {
 }
 
 void write_subscriber(int pub_pipe) {
+	tfs_open()
+	tfs_read()
 	while (true) {
 		char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
@@ -225,31 +226,38 @@ void write_subscriber(int pub_pipe) {
 
 int register_new_box(char *name_pipe, char *box_name) {
 	// Open pipe for write
-    int pub_pipe = open(name_pipe, O_WRONLY);
-    if (pub_pipe == -1) {
+    int man_pipe = open(name_pipe, O_WRONLY);
+    if (man_pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-	// VERIFICAR SE PODE HAVER CONEXÃO
-	if (curr_sessions > max_sessions) {
-		return -1;
-	}
+	uint8_t code = ANSWER_BOX_CREATE;
+	int32_t return_code = 0;
+	char error_message[BUFFER_SIZE] ;
+	memset(error_message, '\0', BUFFER_SIZE);
+	bool error = false;
 
-	/* Caixa já existe */
+	// box already exists
 	if (search_boxes(box_name) != NULL) {
-		// RETORNAR ERRO
+		error = true;
 	}
 
 	int fhandler = tfs_open(box_name, TFS_O_CREAT);
-	
-	if (fhandler == -1) {
-		// RETORNAR ERRO
+	// could not open a tfs_file 
+	if (error || fhandler == -1) {
+		return_code = '-1';
 	}
-
+	sprintf(message_request, "%c|%d|%s", code, return_code, error_message);
 	insert_box(box_name);
 
+	// write message in pipe
+	ssize_t written = write(pipe, message_request, strlen(message_request));
+	if (written < 0) {
+		exit(EXIT_FAILURE);
+
 	tfs_close(fhandler);
+	close(man_pipe);
 
 	return -1;
 }
@@ -298,6 +306,8 @@ void process_serialization(char *message) {
 		int box_pipe = register_new_box(name_pipe, box_name);
 		close(box_pipe);
 	}
+
+
 }
 
 

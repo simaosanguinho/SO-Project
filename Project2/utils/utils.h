@@ -7,10 +7,7 @@
 #include <stdint.h>
 //CONSTANTES
 
-#define BUFFER_SIZE 1024
-
-#define MAXP 256
-#define MAXB 32
+#define BUFFER_SIZE 1500
 
 
 /* Protocol constants */
@@ -25,11 +22,6 @@
 #define PUB_WRITE_MSG           '9'
 #define SUB_READ_MSG            '10'
 
-typedef struct  __attribute__((__packed__)) {
-    uint8_t code;
-    char pipe_name[MAXP];
-    char box_name[MAXB];
-} request;
 
 
 

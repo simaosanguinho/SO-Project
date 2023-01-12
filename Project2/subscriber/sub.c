@@ -13,10 +13,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define BUFFER_SIZE 1024
-
 int messages_received = 0;
 char pipe_name[256];
+int pipe = -1;
 
 void print_usage(){
     fprintf(stderr, "usage: sub <register_pipe_name> <pipe_name> <box_name>\n");
@@ -49,10 +48,11 @@ void register_subscriber(char *register_pipe_name, char box_name[32]) {
         fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
 	}
+	close(register_pipe);
 }
 
 
-void read_messages(int pipe) {
+void read_messages() {
 	while (true) {
 		char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
@@ -69,6 +69,7 @@ void read_messages(int pipe) {
 			strtok(code, "|");
 			// print the message
 			fprintf(stdout, "%s\n", strtok(NULL, "|"));
+			messages_received++;
 		}
 	}
 }
@@ -89,6 +90,26 @@ void sub_init() {
     }
 }
 
+/* Removes client's pipe from file system */
+static void sig_handler(int sig) {
+	if (sig == SIGINT) {
+		if (signal(SIGINT, sig_handler) == SIG_ERR) {
+			exit(EXIT_FAILURE);
+		}
+	} else if (sig == SIGQUIT) {
+		if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+			exit(EXIT_FAILURE);
+		}
+	}
+	if (pipe != -1) {
+		close(pipe);
+	}
+	if (unlink(pipe_name) != 0) {
+        exit(EXIT_FAILURE);
+    }
+	fprintf(stdout, "%d\n", messages_received);
+	exit(EXIT_SUCCESS);
+}
 
 int main(int argc, char **argv) {
 	/* Verify and store arguments given */
@@ -100,17 +121,25 @@ int main(int argc, char **argv) {
 
 	/* create client name_pipe */
     sub_init();
+
+	if (signal(SIGINT, sig_handler) == SIG_ERR) {
+		exit(EXIT_FAILURE);
+	} else if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+		exit(EXIT_FAILURE);
+	}
+
 	register_subscriber(register_pipe_name, box_name);
 
 	/* Wait for mbroker to write pipe */
-	int fsub = open(pipe_name, O_RDONLY);
-    if (fsub == -1) {
+	pipe = open(pipe_name, O_RDONLY);
+    if (pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-	read_messages(fsub);
+	read_messages();
 
-    close(fsub);
+    close(pipe);
+	unlink(pipe_name);
 
     return -1;
 }

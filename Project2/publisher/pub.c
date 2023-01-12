@@ -15,7 +15,7 @@
 #include <signal.h>
 
 char pipe_name[256];
-
+int pipe = -1;
 
 void print_usage(){
     fprintf(stderr, "usage: pub <register_pipe_name> <pipe_name> <box_name>\n");
@@ -53,9 +53,8 @@ void register_publisher(char *register_pipe_name, char box_name[32]) {
 
 
 /* read stdin and send it to mbroker, until reaches EOF or mbroker closes pipe */
-void send_messages(int pipe) {
+void send_messages() {
 	char buffer[BUFFER_SIZE];
-	
 
 	while (true) {
 		memset(buffer, '\0', BUFFER_SIZE);
@@ -66,18 +65,16 @@ void send_messages(int pipe) {
 		size_t newline_i = strcspn(buffer, "\n");
 		buffer[newline_i] = '\0';
 
-		uint8_t code = PUB_WRITE_MSG; // nao deveria ser 9?
-		char message_publisher[BUFFER_SIZE]; // nao deviamos somar + 4 para o espaco do int?
+		uint8_t code = PUB_WRITE_MSG;
+		char message_publisher[BUFFER_SIZE];
 		sprintf(message_publisher, "%c|%s", code, buffer); 
 
 		// write message in pipe
 		ssize_t written = write(pipe, message_publisher, strlen(message_publisher));
 		if (written < 0) {
 			exit(EXIT_FAILURE);
-		} else if (written == 0) {
-			// nothing was written - EMPTY MESSAGE should not be return
-			//return;
-			continue;
+		} else if (written == 0) { /* mbroker closed session */
+			return;
 		}
 		
 	}
@@ -106,6 +103,13 @@ static void sig_handler(int sig) {
 		if (signal(SIGINT, sig_handler) == SIG_ERR) {
 			exit(EXIT_FAILURE);
 		}
+	} else if (sig == SIGQUIT) {
+		if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+			exit(EXIT_FAILURE);
+		}
+	}
+	if (pipe != -1) {
+		close(pipe);
 	}
 	if (unlink(pipe_name) != 0) {
         exit(EXIT_FAILURE);
@@ -127,19 +131,21 @@ int main(int argc, char **argv) {
 
 	if (signal(SIGINT, sig_handler) == SIG_ERR) {
 		exit(EXIT_FAILURE);
+	} else if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+		exit(EXIT_FAILURE);
 	}
 
 	register_publisher(register_pipe_name, box_name);
 
     /* Wait for mbroker to read pipe */
-    int fpub = open(pipe_name, O_WRONLY);
-    if (fpub == -1) {
+    pipe = open(pipe_name, O_WRONLY);
+    if (pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-	send_messages(fpub);
-
-    close(fpub);
+	send_messages();
+	unlink(pipe_name);
+    close(pipe);
     return -1;
 }
