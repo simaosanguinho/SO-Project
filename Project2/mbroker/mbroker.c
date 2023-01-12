@@ -254,16 +254,20 @@ int register_new_box(char *name_pipe, char *box_name) {
 	return -1;
 }
 
-
-
+// convert a string of lenght 1 to character
+char string_to_char(char* str){
+	char c = str[0];
+	return c;
+}
 
 
 
 void process_serialization(char *message) {
 	char *args = strtok(message, "|");
+	char code = string_to_char(args);
 
 	/* Register Publisher */
-	if (strcmp(args, REQUEST_PUB_REGISTER) == 0) {
+	if (REQUEST_PUB_REGISTER == code) {
 		char name_pipe[256];
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));
@@ -274,7 +278,7 @@ void process_serialization(char *message) {
 			close(pub_pipe);
 		}
 	/* Register Subscriber */
-	} else if (strcmp(args, REQUEST_SUB_REGISTER) == 0) {
+	} else if (REQUEST_SUB_REGISTER == code) {
 		char name_pipe[256];
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));
@@ -286,7 +290,7 @@ void process_serialization(char *message) {
 		close(sub_pipe);
 
 	/* Create Box */
-	} else if (strcmp(args, REQUEST_BOX_CREATE) == 0) {
+	} else if (REQUEST_BOX_CREATE == code) {
 		char name_pipe[256];
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));

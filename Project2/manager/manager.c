@@ -48,10 +48,6 @@ void manager_init(char* pipe_name){
 
 }
 
-// close client's pipe
-void manager_destroy(int pipe){
-	close(pipe);
-}
 
 int open_register_pipe(char* register_pipe_name){
 
@@ -141,8 +137,6 @@ int main(int argc, char **argv) {
 	}
 
 	// as soon as it ends a request, the manager terminates
-	manager_destroy(pipe);
-
 
     return -1;
 }
