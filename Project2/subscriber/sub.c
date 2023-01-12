@@ -34,7 +34,7 @@ int verify_arguments(int argc){
 
 void register_subscriber(char *register_pipe_name, char box_name[32]) {
 	/* Format message request */
-	uint8_t code = '2';
+	uint8_t code = REQUEST_SUB_REGISTER;
 	char message_request[BUFFER_SIZE];
 	sprintf(message_request, "%c|%s|%s", code, pipe_name, box_name);
 
@@ -52,11 +52,11 @@ void register_subscriber(char *register_pipe_name, char box_name[32]) {
 }
 
 
-void read_messages(int name_pipe) {
+void read_messages(int pipe) {
 	while (true) {
 		char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
-		ssize_t ret = read(name_pipe, buffer, BUFFER_SIZE);
+		ssize_t ret = read(pipe, buffer, BUFFER_SIZE);
 		if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
@@ -64,14 +64,16 @@ void read_messages(int name_pipe) {
 			break;
 		} else {
 			buffer[ret] = 0;
+			// extract the message code
 			char code[3];
 			strtok(code, "|");
+			// print the message
 			fprintf(stdout, "%s\n", strtok(NULL, "|"));
 		}
 	}
 }
 
-
+// create the session pipe
 void sub_init() {
 	// Remove pipe if it does not exist
 	if (unlink(pipe_name) != 0 && errno != ENOENT) {
@@ -98,7 +100,6 @@ int main(int argc, char **argv) {
 
 	/* create client name_pipe */
     sub_init();
-
 	register_subscriber(register_pipe_name, box_name);
 
 	/* Wait for mbroker to write pipe */
@@ -107,7 +108,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-
 	read_messages(fsub);
 
     close(fsub);

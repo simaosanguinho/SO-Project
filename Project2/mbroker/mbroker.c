@@ -20,11 +20,6 @@ int max_sessions = 0;
 int curr_sessions = 0;
 int register_pipe; /* pipe opened */
 
-
-/*             */
-/*     BOX     */
-/*             */
-
 typedef struct box {
 	char box_name[32];
 	int publisher;
@@ -35,6 +30,25 @@ typedef struct box {
 
 Box* box_list = NULL;
 
+
+void print_usage(){
+    fprintf(stderr, "usage: mbroker <pipename> <maxsessions>\n");
+}
+
+/* verify arguments */
+int verify_arguments(int argc){
+    if(argc != 3){
+        print_usage();
+        exit(EXIT_FAILURE);
+    }
+    return 0;
+}
+
+/*             */
+/*     BOX     */
+/*             */
+
+// insert box in the beginning of the list
 void insert_box(char box_name[32]) {
 	Box* new_box = (Box*)malloc(sizeof(Box));
 	int subscribers[0];
@@ -87,22 +101,6 @@ Box* search_boxes(char box_name[32]) {
 	return NULL;
 }
 
-
-
-
-void print_usage(){
-    fprintf(stderr, "usage: mbroker <pipename> <maxsessions>\n");
-}
-
-/* verify arguments */
-int verify_arguments(int argc){
-    if(argc != 3){
-        print_usage();
-        exit(EXIT_FAILURE);
-    }
-    return 0;
-}
-
 /* returns file desciptor of pipe that represents mbroker*/
 int mbroker_init(char* register_pipe_name){
     
@@ -113,13 +111,13 @@ int mbroker_init(char* register_pipe_name){
         exit(EXIT_FAILURE);
     }
 
-    // Create pipe
+    // Create register pipe
     if (mkfifo(register_pipe_name, 0640) != 0) {
         fprintf(stderr, "[ERR]: mkfifo failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-    // Open pipe for reading
+    // Open register pipe for reading
     int register_pipee = open(register_pipe_name, O_RDONLY);
     if (register_pipee == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
@@ -148,6 +146,7 @@ int register_pub(char *name_pipe, char *box_name) {
 	if (box == NULL) {
 		close(pub_pipe);
 		return -1;
+	// box already has a publisher
 	} else if (box->publisher != -1) {
 		close(pub_pipe);
 		return -1;
@@ -264,7 +263,7 @@ void process_serialization(char *message) {
 	char *args = strtok(message, "|");
 
 	/* Register Publisher */
-	if (strcmp(args, "1") == 0) {
+	if (strcmp(args, REQUEST_PUB_REGISTER) == 0) {
 		char name_pipe[256];
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));
@@ -275,7 +274,7 @@ void process_serialization(char *message) {
 			close(pub_pipe);
 		}
 	/* Register Subscriber */
-	} else if (strcmp(args, "2") == 0) {
+	} else if (strcmp(args, REQUEST_SUB_REGISTER) == 0) {
 		char name_pipe[256];
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));
@@ -285,8 +284,9 @@ void process_serialization(char *message) {
 			//write_subscriber(pub_pipe);
 		}
 		close(sub_pipe);
+
 	/* Create Box */
-	} else if (strcmp(args, "3") == 0) {
+	} else if (strcmp(args, REQUEST_BOX_CREATE) == 0) {
 		char name_pipe[256];
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));

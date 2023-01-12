@@ -33,7 +33,7 @@ int verify_arguments(int argc){
 /* Send register code */
 void register_publisher(char *register_pipe_name, char box_name[32]) {
 	/* Format message request */
-	uint8_t code = '1';
+	uint8_t code = REQUEST_PUB_REGISTER;
 	char message_request[BUFFER_SIZE];
 	sprintf(message_request, "%c|%s|%s", code, pipe_name, box_name);
 
@@ -53,7 +53,7 @@ void register_publisher(char *register_pipe_name, char box_name[32]) {
 
 
 /* read stdin and send it to mbroker, until reaches EOF or mbroker closes pipe */
-void send_messages(int name_pipe) {
+void send_messages(int pipe) {
 	char buffer[BUFFER_SIZE];
 	
 
@@ -66,20 +66,22 @@ void send_messages(int name_pipe) {
 		size_t newline_i = strcspn(buffer, "\n");
 		buffer[newline_i] = '\0';
 
-		uint8_t code = '8';
-		char message_publisher[BUFFER_SIZE];
-		sprintf(message_publisher, "%c|%s", code, buffer);
+		uint8_t code = PUB_WRITE_MSG; // nao deveria ser 9?
+		char message_publisher[BUFFER_SIZE]; // nao deviamos somar + 4 para o espaco do int?
+		sprintf(message_publisher, "%c|%s", code, buffer); 
 
-		ssize_t read = write(name_pipe, message_publisher, strlen(message_publisher));
-		if (read < 0) {
+		// write message in pipe
+		ssize_t written = write(pipe, message_publisher, strlen(message_publisher));
+		if (written < 0) {
 			exit(EXIT_FAILURE);
-		} else if (read == 0) {
-			return;
+		} else if (written == 0) {
+			// nothing was written - EMPTY MESSAGE should not be return
+			//return;
+			continue;
 		}
 		
 	}
 }
-
 
 /* initializes publisher - create publisher named pipe */
 void pub_init(){
@@ -98,7 +100,7 @@ void pub_init(){
 }
 
 
-/* Removes name pipe from file system */
+/* Removes client's pipe from file system */
 static void sig_handler(int sig) {
 	if (sig == SIGINT) {
 		if (signal(SIGINT, sig_handler) == SIG_ERR) {

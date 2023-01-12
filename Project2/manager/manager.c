@@ -92,7 +92,7 @@ void request_box(uint8_t code, char* box_name, char* pipe_name, int register_pip
 
 void list_boxes(char* pipe_name, int register_pipe){
 	/* Format message request */
-	uint8_t code = '7';
+	uint8_t code = REQUEST_BOX_LIST;
 	char message_request[BUFFER_SIZE];
 	sprintf(message_request, "%c|%s", code, pipe_name);
 
@@ -103,7 +103,7 @@ void list_boxes(char* pipe_name, int register_pipe){
 	}
     close_register_pipe(register_pipe);
 
-	// WAIT THE REQUEST TO BE ANSWERED 
+	// WAIT THE REQUEST TO BE ANSWERED - the pipes are blocked when reading
 
 	// reopen the pipe
 	// read the list of boxes
@@ -140,7 +140,8 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);	
 	}
 
-	//manager_destroy(pipe);
+	// as soon as it ends a request, the manager terminates
+	manager_destroy(pipe);
 
 
     return -1;
