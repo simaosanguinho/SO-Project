@@ -21,7 +21,7 @@
 #define REQUEST_BOX_LIST        '7'
 #define ANSWER_BOX_LIST         '8'
 #define PUB_WRITE_MSG           '9'
-#define SUB_READ_MSG            '10'
+#define SUB_READ_MSG            10
 
 
 

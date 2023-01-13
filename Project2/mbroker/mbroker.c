@@ -17,14 +17,13 @@
 int max_sessions = 0;
 int curr_sessions = 0;
 int register_pipe; /* pipe opened */
-int n_boxes = 0;
 
 
 typedef struct box {
 	char box_name[32];
-	int curr_publisher;
-	int n_publishers;
-	int *subscribers;
+	uint64_t publisher;
+	uint64_t subscribers;
+	uint64_t box_size;
 	pthread_cond_t condition;
 	struct box* next;
 } Box;
@@ -46,6 +45,12 @@ int verify_arguments(int argc){
     return 0;
 }
 
+/* returns filename with a '/' in the beginning */
+void get_box_filename(char box_name[32], char *filename) {
+	sprintf(filename, "/%s", box_name);
+}
+
+
 /*             */
 /*     BOX     */
 /*             */
@@ -53,54 +58,44 @@ int verify_arguments(int argc){
 // insert box in the beginning of the list
 void insert_box(char box_name[32]) {
 	Box* new_box = (Box*)malloc(sizeof(Box));
-	int subscribers[0];
-	new_box->subscribers = subscribers;
 	strcpy(new_box->box_name, box_name);
-	new_box->curr_publisher = -1;
-	new_box->n_publishers = 0;
+	new_box->subscribers = 0;
+	new_box->publisher = 0;
+	new_box->box_size = 0;
 	new_box->next = box_list;
 	pthread_cond_init(&new_box->condition, NULL);
 	box_list = new_box;
 }
 
-void delete_box(char box_name[32]) {
+int delete_box(char *box_name) {
 	Box* temp = box_list;
 	Box* prev = NULL;
 	if (temp != NULL && strcmp(temp->box_name, box_name) == 0) {
 		box_list = temp->next;
 		free(temp);
-		return;
+		return -1;
 	}
 	while (temp != NULL && strcmp(temp->box_name, box_name) != 0) {
         prev = temp;
         temp = temp->next;
     }
-    if (temp == NULL) return;
+    if (temp == NULL) return -1;
     prev->next = temp->next;
     free(temp);
+	return 0;
 }
 
-/*
-void print_list() {
+
+Box* search_boxes(char *box_name) {
 	Box* temp = box_list;
+
     while (temp != NULL) {
-        // PROCESSAR DADOS
-        temp = temp->next;
+		if (strcmp(temp->box_name, box_name) == 0) {
+			return temp;
+		}
+		temp = temp->next;
     }
-}
-*/
 
-Box* search_boxes(char box_name[32]) {
-	Box* temp = box_list;
-	if (temp == NULL) {
-		return temp;
-	}
-    while (temp != NULL && strcmp(temp->box_name, box_name) != 0) {
-        temp = temp->next;
-    }
-	if (strcmp(temp->box_name, box_name) == 0) {
-		return temp;
-	}
 	return NULL;
 }
 
@@ -134,9 +129,57 @@ int mbroker_init(char* register_pipe_name){
 /*     PUBLISHER     */
 /*                   */
 
+/*  */
+void read_publisher(int pub_pipe, Box* box) {
+	while (true) {
+		char buffer[BUFFER_SIZE];
+		memset(buffer, '\0', BUFFER_SIZE);
+		ssize_t ret = read(pub_pipe, buffer, BUFFER_SIZE);
+		if (ret == -1) {
+			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		} else if (ret==0 || box == NULL) {
+			/* Publisher closed session or box doesn't exist anymore */
+			break;
+		} else {
+			buffer[ret] = '\0';
+			char filename[33];
+			char message[1024];
+			strtok(buffer, "|"); /* Remove code from beginning of code */
+			strcpy(message, strtok(NULL, "|"));
+			/* Write message into the box in tfs */
+			get_box_filename(box->box_name, filename);
+
+			int fbox = tfs_open(filename, TFS_O_APPEND); /* APPEND flag to force offset to write in the end */
+			ssize_t written = tfs_write(fbox, message, strlen(message)+1); /* strlen+1 forces \0 character to be written */
+			if (written == -1) {
+				/* Error writing */
+				continue;
+			} else if (written != strlen(message)+1) {
+				/* File exceed maximum capacity */
+				box->box_size += (uint64_t) written;
+				tfs_close(fbox);
+				break;
+			}
+			/* Broadcast a signal to all subscribers to receive a message */
+			//pthread_cond_broadcast(&box->condition);
+
+			// increment the box size with the new message size
+			box->box_size += (uint64_t) written;
+			
+			tfs_close(fbox);
+		}
+	}
+	if (box != NULL) {
+		box->publisher=0;
+	}
+	close(pub_pipe); /* Close session */
+}
+
+
 /* Check if box exists, doesn't have other publisher
 	and doesn't exceed session limits */
-int register_pub(char *name_pipe, char *box_name) {
+void register_pub(char *name_pipe, char *box_name) {
 
 	Box* box = search_boxes(box_name);
 
@@ -146,91 +189,145 @@ int register_pub(char *name_pipe, char *box_name) {
         exit(EXIT_FAILURE);
     }
 
+	/* Verify if box exists */
 	if (box == NULL) {
 		close(pub_pipe);
-		return -1;
-	// box already has a publisher
-	} else if (box->curr_publisher != -1) {
+		return;
+	/* Verify if box alread has a publisher */
+	} else if (box->publisher != 0) {
 		close(pub_pipe);
-		return -1;
+		return;
 	} else {
-		box->currpublisher = pub_pipe;
-		box->n_publishers++;
-
+		box->publisher = 1;
 	}
 
-	return pub_pipe;
+	read_publisher(pub_pipe, box);
 }
 
-
-void read_publisher(int pub_pipe) {
-	while (true) {
-		char buffer[BUFFER_SIZE];
-		memset(buffer, '\0', BUFFER_SIZE);
-		ssize_t ret = read(pub_pipe, buffer, BUFFER_SIZE);
-		if (ret == -1) {
-			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		} else if (ret==0) {
-			curr_sessions--;
-			break;
-		} else {
-			buffer[ret] = 0;
-			fprintf(stderr, "[PUBLISHER] %s\n", buffer);
-			/* ENVIAR MENSAGEM NO LOCAL APROPRIADO */
-		}
-	}
-}
 
 
 /*                    */
 /*     SUBSCRIBER     */
 /*                    */
 
-int register_sub(char *name_pipe, char *box_name) {
-	(void) box_name;
-	// Open pipe for write
-    int pub_pipe = open(name_pipe, O_WRONLY);
-    if (pub_pipe == -1) {
+int send_message_subscriber(int sub_pipe, char message[1024]) {
+	uint8_t code = SUB_READ_MSG;
+	char buffer[BUFFER_SIZE];
+	memset(buffer, '\0', BUFFER_SIZE);
+	sprintf(buffer, "%hhu|%s", code, message);
+
+	ssize_t written = write(sub_pipe, buffer, strlen(buffer));
+	if (written == -1) {
+		fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+		exit(EXIT_FAILURE);
+	} else if (written==0) {
+		return -1; /* subscriber session closed */
+	}
+	return 0;
+}
+
+int read_past_messages(int sub_pipe, Box* box) {
+	if (box == NULL) {
+		return -1;
+	}
+	char filename[33];
+	get_box_filename(box->box_name, filename);
+	int fbox = tfs_open(filename, 0); /* Open to read, with offset in 0 */
+	char buffer[BUFFER_SIZE];
+	memset(buffer, '\0', BUFFER_SIZE);
+	ssize_t bytes_read;
+
+
+	while ((bytes_read = tfs_read(fbox, buffer, BUFFER_SIZE)) > 0) {
+
+		char message[1024];
+		memset(message, '\0', 1024);
+		int index = 0;
+
+		for (int i=0; i<bytes_read; i++) { /* find null char */
+			if (buffer[i] == '\0') {
+				usleep(10000); /* Prevenir race com o read do subscriber - sleep 1 ms */
+				if (send_message_subscriber(sub_pipe, message) == -1) { /* send message to subscriber */
+						tfs_close(fbox);
+						close(sub_pipe); /* close session */
+						return -1;
+				}
+				memset(message, '\0', 1024);
+				index = 0;
+			} else {
+				message[index] = buffer[i];
+				index++;
+			}
+		}
+	}
+	tfs_close(fbox);
+	return 0;
+}
+
+
+void write_subscriber(int sub_pipe, Box* box) {
+	if (read_past_messages(sub_pipe, box) == -1) {
+		return; /* Error reading old messages, close session */
+	}
+
+	char filename[33];
+	get_box_filename(box->box_name, filename);
+	int fbox = tfs_open(filename, TFS_O_APPEND); /* Force to set offset in last position */
+
+	while (true) { /* Read new messages */
+		if (box == NULL) { /* Box doesn't exist anymore */
+			break; /* Close session */
+		}
+		char buffer[BUFFER_SIZE];
+		memset(buffer, '\0', BUFFER_SIZE);
+
+		ssize_t written = tfs_read(fbox, buffer, BUFFER_SIZE); /* read last message */
+		if (written == -1) {
+			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+			exit(EXIT_FAILURE);
+		} else if (written==0) {
+			break; /* session closed */
+		} else {
+			buffer[written] = 0;
+			if (send_message_subscriber(sub_pipe, buffer) == -1) {
+				return; // close session (error sending message)
+			}
+		}
+	}
+	tfs_close(fbox);
+	close(sub_pipe);
+}
+
+
+void register_sub(char *name_pipe, char *box_name) {
+
+	Box* box = search_boxes(box_name); /* Get the box */
+
+    int sub_pipe = open(name_pipe, O_WRONLY);
+    if (sub_pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-	// VERIFICAR SE PODE HAVER CONEXÃO
-	if (curr_sessions < max_sessions) {
-		curr_sessions++;
-		return pub_pipe;
+	/* Verify if box exists */
+	if (box == NULL) {
+		close(sub_pipe);
+		return;
+	} else {
+		// adicionar subscriber à box
+		box->subscribers++;
 	}
-	return -1;
-}
 
-void write_subscriber(int pub_pipe) {
-	tfs_open();
-	tfs_read();
-	while (true) {
-		char buffer[BUFFER_SIZE];
-		memset(buffer, '\0', BUFFER_SIZE);
-
-		ssize_t ret = write(pub_pipe, buffer, BUFFER_SIZE);
-		if (ret == -1) {
-			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
-			exit(EXIT_FAILURE);
-		} else if (ret==0) {
-			curr_sessions--;
-			break;
-		} else {
-			buffer[ret] = 0;
-			fprintf(stderr, "[PUBLISHER] %s\n", buffer);
-			/* ENVIAR MENSAGEM NO LOCAL APROPRIADO */
-		}
-	}
+	write_subscriber(sub_pipe, box);
+	box->subscribers--;
 }
 
 /*                 */
 /*     MANAGER     */
 /*                 */
 
-int register_new_box(char *name_pipe, char *box_name) {
+
+int register_new_box(char *name_pipe, char box_name[32]) {
 	// Open pipe for write
     int man_pipe = open(name_pipe, O_WRONLY);
     if (man_pipe == -1) {
@@ -242,49 +339,116 @@ int register_new_box(char *name_pipe, char *box_name) {
 	int32_t return_code = 0;
 	char error_message[BUFFER_SIZE] ;
 	memset(error_message, '\0', BUFFER_SIZE);
-	bool error = false;
 
 	// box already exists
 	if (search_boxes(box_name) != NULL) {
-		error = true;
+		return_code = -1;
+		strcpy(error_message, "Box already exists.");
+	} else {
+		char filename[33];
+		get_box_filename(box_name, filename);
+		int fhandler = tfs_open(filename, TFS_O_CREAT);
+		// could not open a tfs_file 
+		if (fhandler == -1) {
+			return_code = -1;
+			strcpy(error_message, "Error creating new file on tfs.");
+		} else {
+			insert_box(box_name);
+		}
+		tfs_close(fhandler);
 	}
-
-	int fhandler = tfs_open(box_name, TFS_O_CREAT);
-	// could not open a tfs_file 
-	if (error || fhandler == -1) {
-		return_code = '-1';
-	}
-	sprintf(message_request, "%c|%d|%s", code, return_code, error_message);
-	insert_box(box_name);
 
 	// write message in pipe
-	ssize_t written = write(pipe, message_request, strlen(message_request));
+	char message_request[BUFFER_SIZE];
+	sprintf(message_request, "%c|%d|%s", code, return_code, error_message);
+	ssize_t written = write(man_pipe, message_request, strlen(message_request));
 	if (written < 0) {
 		exit(EXIT_FAILURE);
+	}
 
-	tfs_close(fhandler);
 	close(man_pipe);
 
 	return -1;
 }
 
+
+
 int remove_box(char *name_pipe, char *box_name){
+	//(void) box_name;
+	char error_message[BUFFER_SIZE];
+	int32_t return_code = 0;
 	// Open pipe for write
     int man_pipe = open(name_pipe, O_WRONLY);
     if (man_pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
+	uint8_t code = ANSWER_BOX_REMOVE;
 
-	// dar close das pipes de escrita dos subscribers
-	// dar close da pipe de read do pub - ver questao do piazza fav
-	// dar unlink do file que é a box
+	// the subscribers and publishers' pipes close automatically
+	// so these stop running 
+	if(delete_box(box_name) == -1){
+		return_code = -1;
+		strcpy(error_message, "Error deleting box - box does not exist.");
+	}
 
+	// write message in pipe
+	char message_request[BUFFER_SIZE];
+	sprintf(message_request, "%c|%d|%s", code, return_code, error_message);
+	ssize_t written = write(man_pipe, message_request, strlen(message_request));
+	if (written < 0) {
+		exit(EXIT_FAILURE);
+	}
+
+	tfs_unlink(box_name);
+	close(man_pipe);
+	
+	return -1;
 }
 
 
+void send_box_list(char* name_pipe) {
+	uint8_t code = ANSWER_BOX_LIST;
 
+	uint8_t last = 0;
+	char box_name[32];
+	uint64_t box_size;
+	uint64_t n_publishers;
+	uint64_t n_subscribers;
 
+	int man_pipe = open(name_pipe, O_WRONLY);
+    if (man_pipe == -1) {
+        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+	
+	char message_box[BUFFER_SIZE];
+
+	Box* temp = box_list;
+	if (temp == NULL) { /* no box found */
+		memset(message_box, '\0', BUFFER_SIZE);
+		memset(box_name, '\0', 32);
+		last = 1;
+		sprintf(message_box, "%hhu|%hhu|%s", code, last, box_name);
+		if (write(man_pipe, message_box, strlen(message_box)+1)<0) exit(EXIT_FAILURE);
+	}
+    while (temp != NULL) {
+		memset(message_box, '\0', BUFFER_SIZE);
+		if (temp->next == NULL) last = 1;
+		strcpy(box_name, temp->box_name);
+		box_size = temp->box_size;
+		n_publishers = temp->publisher;
+		n_subscribers = temp->subscribers;
+		sprintf(message_box, "%hhu|%hhu|%s|%llu|%llu|%llu", 
+				code, last, box_name, box_size, n_publishers, n_subscribers);
+		usleep(10000);
+		if (write(man_pipe, message_box, strlen(message_box)) == -1) 
+			exit(EXIT_FAILURE);
+        temp = temp->next;
+    }
+	
+	close(man_pipe);
+}
 
 // convert a string of lenght 1 to character
 char string_to_char(char* str){
@@ -295,7 +459,7 @@ char string_to_char(char* str){
 
 
 void process_serialization(char *message) {
-	char *args = strtok(message, "|");
+	char *args = strtok(message, "|");		// extract message code	
 	char code = string_to_char(args);
 
 	/* Register Publisher */
@@ -304,22 +468,15 @@ void process_serialization(char *message) {
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));
 		strcpy(box_name, strtok(NULL, "|"));
-		int pub_pipe = register_pub(name_pipe, box_name);
-		if (pub_pipe != -1) {
-			read_publisher(pub_pipe);
-			close(pub_pipe);
-		}
+		register_pub(name_pipe, box_name);
+
 	/* Register Subscriber */
 	} else if (REQUEST_SUB_REGISTER == code) {
 		char name_pipe[256];
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));
 		strcpy(box_name, strtok(NULL, "|"));
-		int sub_pipe = register_sub(name_pipe, box_name);
-		if (sub_pipe != -1) {
-			//write_subscriber(pub_pipe);
-		}
-		close(sub_pipe);
+		register_sub(name_pipe, box_name);
 
 	/* Create Box */
 	} else if (REQUEST_BOX_CREATE == code) {
@@ -336,9 +493,12 @@ void process_serialization(char *message) {
 		char box_name[32];
 		strcpy(name_pipe, strtok(NULL, "|"));
 		strcpy(box_name, strtok(NULL, "|"));
-		int box_pipe = remove_box(name_pipe, box_name);
-		close(box_pipe)
+		remove_box(name_pipe, box_name);
 
+	} else if (REQUEST_BOX_LIST == code){
+		char name_pipe[256];
+		strcpy(name_pipe, strtok(NULL, "|"));
+		send_box_list(name_pipe);
 	}
 
 }

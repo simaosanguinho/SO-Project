@@ -19,7 +19,7 @@ typedef struct box_data {
 	char box_name[32];
 	long box_size;
 	long n_subscribers;
-	long n_publishers;
+	long publisher;
 	struct box_data* next;
 } Box_Data;
 
@@ -87,8 +87,8 @@ void create_destroy_box(uint8_t code, char* box_name, char* pipe_name, int regis
         exit(EXIT_FAILURE);
 	}
     close_register_pipe(register_pipe);
-	int pipe = open(pipe_name, O_RDONLY);
-    if (pipe == -1) {
+	int pipe_i = open(pipe_name, O_RDONLY);
+    if (pipe_i == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
@@ -97,29 +97,30 @@ void create_destroy_box(uint8_t code, char* box_name, char* pipe_name, int regis
 	char error_message[BUFFER_SIZE];
 	int32_t return_code;
 
-	ssize_t ret = read(pipe, buffer, BUFFER_SIZE);
+	ssize_t ret = read(pipe_i, buffer, BUFFER_SIZE);
 	if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 	}
 
-	char *args = strtok(buffer, "|");
-			return_code = (int32_t) atoi(strtok(NULL, "|"));
-			strcpy(error_message, strtok(NULL, "|"));
+	strtok(buffer, "|");
+	return_code = (int32_t) atoi(strtok(NULL, "|"));
+	
 
 	// box was successfully created or destroyed
-	if(return_code != -1)
+	if (return_code != -1) {
 		fprintf(stdout, "OK\n");
-	 
-	else
+	} else {
+		strcpy(error_message, strtok(NULL, "|"));
 		fprintf(stdout, "ERROR %s\n", error_message);
+	}
 	
-	close(pipe);
+	close(pipe_i);
 
 }
 
 // insert box in list by alphabetical order
-void insert_box(Box_Data box){
+void insert_box(Box_Data *box){
 
 	// insert at the beginning
 	if (box_list == NULL || strcmp(box_list->box_name, box->box_name) > 0) {
@@ -145,9 +146,26 @@ void print_box_list()
         fprintf(stdout, "%s %zu %zu %zu\n", 
 					aux->box_name, 
 					aux->box_size, 
-					aux->n_publishers,
+					aux->publisher,
 					aux->n_subscribers);
+}
 
+
+
+void destroy_box_list(){
+	Box_Data* temp;
+
+	// box list is empty
+	if(box_list == NULL){
+		return;
+	}
+
+	while(box_list->next != NULL){
+		temp = box_list;
+		box_list = box_list->next;
+		free(temp);
+	}
+	free(box_list);
 }
 
 
@@ -167,45 +185,50 @@ void list_boxes(char* pipe_name, int register_pipe){
     close_register_pipe(register_pipe);
 
 	// Open register pipe for writing
-    int pipe = open(pipe_name, O_RDONLY);
-    if (pipe == -1) {
+    int pipe_i = open(pipe_name, O_RDONLY);
+    if (pipe_i == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-
+	uint8_t last = 0;
 	do {
-		uint8_t last = '1'; // should it be 1 or 2	
+		
+		char buffer[BUFFER_SIZE];
+		char *box_name;
 		memset(buffer, '\0', BUFFER_SIZE);
-		ssize_t ret = read(pipe, buffer, BUFFER_SIZE);
+		ssize_t ret = read(pipe_i, buffer, BUFFER_SIZE);
 		if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
-		} else {
-			Box_Data curr_box =  (Box_Data*)malloc(sizeof(Box_Data));
-
-			char *args = strtok(buffer, "|");
-			strcpy(last , strtok(NULL, "|"));
-			strcpy(curr_box->box_name, strtok(NULL, "|"));
-			curr_box->box_size  = (long) atoll(strtok(NULL, "|"));
-			curr_box->n_publishers = (long) atoll(strtok(NULL, "|"));
-			curr_box->n_subscribers = (long) atoll(strtok(NULL, "|"));
-
-			// no boxes were registered in the mbroker
-			if (strlen(box_name) == 0) {
-				fprintf(stdout, "NO BOXES FOUND\n");
-				break;
-			}
-
-			insert_box(curr_box);
 		}
+		Box_Data* curr_box =  (Box_Data*)malloc(sizeof(Box_Data));
 		
-	} while (last !='1');
+		strtok(buffer, "|");
+		last = (uint8_t) atoi(strtok(NULL, "|"));
+		box_name = strtok(NULL, "|");
+
+		
+		if (last == 1 && box_name==NULL) {
+			fprintf(stdout, "NO BOXES FOUND\n");
+			free(curr_box);
+			break;
+		}
+		strcpy(curr_box->box_name, box_name);
+		curr_box->box_size  = (long) atoll(strtok(NULL, "|"));
+		curr_box->publisher = (long) atoll(strtok(NULL, "|"));
+		curr_box->n_subscribers = (long) atoll(strtok(NULL, "|"));
+
+		// no boxes were registered in the mbroker
+		insert_box(curr_box);
+		
+		
+	} while (last != 1);
 
 	print_box_list();
-	close(pipe);
+	destroy_box_list();
+	close(pipe_i);
 
 }
-
 
 
 int main(int argc, char **argv) {
@@ -226,7 +249,7 @@ int main(int argc, char **argv) {
 		create_destroy_box('3', box_name, pipe_name, register_pipe);
 	} else if (strcmp(action, "remove") == 0) {
 		char* box_name = argv[4];
-		request_box('5', box_name, pipe_name, register_pipe);
+		create_destroy_box('5', box_name, pipe_name, register_pipe);
 	} else if (strcmp(action, "list") == 0) {
 		list_boxes(pipe_name, register_pipe);
 	} else {
@@ -235,6 +258,7 @@ int main(int argc, char **argv) {
 	}
 
 	// as soon as it ends a request, the manager terminates
+
 
     return -1;
 }

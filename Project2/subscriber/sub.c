@@ -15,7 +15,7 @@
 
 int messages_received = 0;
 char pipe_name[256];
-int pipe = -1;
+int pipe_i = -1;
 
 void print_usage(){
     fprintf(stderr, "usage: sub <register_pipe_name> <pipe_name> <box_name>\n");
@@ -56,7 +56,7 @@ void read_messages() {
 	while (true) {
 		char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
-		ssize_t ret = read(pipe, buffer, BUFFER_SIZE);
+		ssize_t ret = read(pipe_i, buffer, BUFFER_SIZE);
 		if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
@@ -65,8 +65,7 @@ void read_messages() {
 		} else {
 			buffer[ret] = 0;
 			// extract the message code
-			char code[3];
-			strtok(code, "|");
+			strtok(NULL, "|");
 			// print the message
 			fprintf(stdout, "%s\n", strtok(NULL, "|"));
 			messages_received++;
@@ -101,8 +100,8 @@ static void sig_handler(int sig) {
 			exit(EXIT_FAILURE);
 		}
 	}
-	if (pipe != -1) {
-		close(pipe);
+	if (pipe_i != -1) {
+		close(pipe_i);
 	}
 	if (unlink(pipe_name) != 0) {
         exit(EXIT_FAILURE);
@@ -131,14 +130,14 @@ int main(int argc, char **argv) {
 	register_subscriber(register_pipe_name, box_name);
 
 	/* Wait for mbroker to write pipe */
-	pipe = open(pipe_name, O_RDONLY);
-    if (pipe == -1) {
+	pipe_i = open(pipe_name, O_RDONLY);
+    if (pipe_i == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 	read_messages();
-
-    close(pipe);
+	fprintf(stdout, "%d\n", messages_received);
+    close(pipe_i);
 	unlink(pipe_name);
 
     return -1;

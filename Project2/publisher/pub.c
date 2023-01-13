@@ -15,7 +15,7 @@
 #include <signal.h>
 
 char pipe_name[256];
-int pipe = -1;
+int pipe_i = -1;
 
 void print_usage(){
     fprintf(stderr, "usage: pub <register_pipe_name> <pipe_name> <box_name>\n");
@@ -70,7 +70,7 @@ void send_messages() {
 		sprintf(message_publisher, "%c|%s", code, buffer); 
 
 		// write message in pipe
-		ssize_t written = write(pipe, message_publisher, strlen(message_publisher));
+		ssize_t written = write(pipe_i, message_publisher, strlen(message_publisher));
 		if (written < 0) {
 			exit(EXIT_FAILURE);
 		} else if (written == 0) { /* mbroker closed session */
@@ -108,8 +108,8 @@ static void sig_handler(int sig) {
 			exit(EXIT_FAILURE);
 		}
 	}
-	if (pipe != -1) {
-		close(pipe);
+	if (pipe_i != -1) {
+		close(pipe_i);
 	}
 	if (unlink(pipe_name) != 0) {
         exit(EXIT_FAILURE);
@@ -138,14 +138,14 @@ int main(int argc, char **argv) {
 	register_publisher(register_pipe_name, box_name);
 
     /* Wait for mbroker to read pipe */
-    pipe = open(pipe_name, O_WRONLY);
-    if (pipe == -1) {
+    pipe_i = open(pipe_name, O_WRONLY);
+    if (pipe_i == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
 	send_messages();
 	unlink(pipe_name);
-    close(pipe);
+    close(pipe_i);
     return -1;
 }
