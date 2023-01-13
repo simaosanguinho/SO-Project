@@ -73,7 +73,7 @@ int delete_box(char *box_name) {
 	if (temp != NULL && strcmp(temp->box_name, box_name) == 0) {
 		box_list = temp->next;
 		free(temp);
-		return -1;
+		return 0;
 	}
 	while (temp != NULL && strcmp(temp->box_name, box_name) != 0) {
         prev = temp;
