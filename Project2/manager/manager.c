@@ -152,10 +152,6 @@ void print_box_list()
 
 
 
-
-// SIMAO - USAR LISTA LIGADA PARA ORDENAR AS BOXES
-
-
 //list the boxes in the server
 void list_boxes(char* pipe_name, int register_pipe){
 	/* Format message request */

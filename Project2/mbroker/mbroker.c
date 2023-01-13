@@ -268,6 +268,24 @@ int register_new_box(char *name_pipe, char *box_name) {
 	return -1;
 }
 
+int remove_box(char *name_pipe, char *box_name){
+	// Open pipe for write
+    int man_pipe = open(name_pipe, O_WRONLY);
+    if (man_pipe == -1) {
+        fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+	// dar close das pipes de escrita dos subscribers
+	// dar close da pipe de read do pub - ver questao do piazza fav
+	// dar unlink do file que é a box
+
+}
+
+
+
+
+
 // convert a string of lenght 1 to character
 char string_to_char(char* str){
 	char c = str[0];
@@ -311,8 +329,17 @@ void process_serialization(char *message) {
 		strcpy(box_name, strtok(NULL, "|"));
 		int box_pipe = register_new_box(name_pipe, box_name);
 		close(box_pipe);
-	}
 
+	/* Remove Box */
+	} else if (REQUEST_BOX_REMOVE == code) {
+		char name_pipe[256];
+		char box_name[32];
+		strcpy(name_pipe, strtok(NULL, "|"));
+		strcpy(box_name, strtok(NULL, "|"));
+		int box_pipe = remove_box(name_pipe, box_name);
+		close(box_pipe)
+
+	}
 
 }
 
