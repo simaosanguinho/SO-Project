@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+
 //CONSTANTES
 
 #define BUFFER_SIZE 1500
@@ -21,7 +22,6 @@
 #define ANSWER_BOX_LIST         '8'
 #define PUB_WRITE_MSG           '9'
 #define SUB_READ_MSG            '10'
-
 
 
 

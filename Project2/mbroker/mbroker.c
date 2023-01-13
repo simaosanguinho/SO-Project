@@ -19,13 +19,16 @@ int curr_sessions = 0;
 int register_pipe; /* pipe opened */
 int n_boxes = 0;
 
+
 typedef struct box {
 	char box_name[32];
-	int publisher;
+	int curr_publisher;
+	int n_publishers;
 	int *subscribers;
 	pthread_cond_t condition;
 	struct box* next;
 } Box;
+
 
 Box* box_list = NULL;
 
@@ -53,7 +56,8 @@ void insert_box(char box_name[32]) {
 	int subscribers[0];
 	new_box->subscribers = subscribers;
 	strcpy(new_box->box_name, box_name);
-	new_box->publisher = -1;
+	new_box->curr_publisher = -1;
+	new_box->n_publishers = 0;
 	new_box->next = box_list;
 	pthread_cond_init(&new_box->condition, NULL);
 	box_list = new_box;
@@ -146,11 +150,13 @@ int register_pub(char *name_pipe, char *box_name) {
 		close(pub_pipe);
 		return -1;
 	// box already has a publisher
-	} else if (box->publisher != -1) {
+	} else if (box->curr_publisher != -1) {
 		close(pub_pipe);
 		return -1;
 	} else {
-		box->publisher = pub_pipe;
+		box->currpublisher = pub_pipe;
+		box->n_publishers++;
+
 	}
 
 	return pub_pipe;
@@ -199,8 +205,8 @@ int register_sub(char *name_pipe, char *box_name) {
 }
 
 void write_subscriber(int pub_pipe) {
-	tfs_open()
-	tfs_read()
+	tfs_open();
+	tfs_read();
 	while (true) {
 		char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);

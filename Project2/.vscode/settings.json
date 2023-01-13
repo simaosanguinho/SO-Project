@@ -1,7 +1,8 @@
 {
     "files.associations": {
         "errno.h": "c",
-        "stdlib.h": "c"
+        "stdlib.h": "c",
+        "chrono": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }
