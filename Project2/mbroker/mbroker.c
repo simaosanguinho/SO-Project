@@ -215,6 +215,7 @@ int send_message_subscriber(int sub_pipe, char message[1024]) {
 	char buffer[BUFFER_SIZE];
 	memset(buffer, '\0', BUFFER_SIZE);
 	sprintf(buffer, "%hhu|%s", code, message);
+	
 
 	ssize_t written = write(sub_pipe, buffer, strlen(buffer));
 	if (written == -1) {
