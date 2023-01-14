@@ -28,6 +28,7 @@ typedef struct {
     pthread_cond_t pcq_popper_condvar;
 } pc_queue_t;
 
+
 // pcq_create: create a queue, with a given (fixed) capacity
 //
 // Memory: the queue pointer must be previously allocated

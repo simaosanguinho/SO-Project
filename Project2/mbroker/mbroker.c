@@ -1,6 +1,7 @@
 #include "logging.h"
 #include "utils.h"
 #include "operations.h"
+#include "producer-consumer.h"
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -15,8 +16,9 @@
 #include <pthread.h>
 
 int max_sessions = 0;
-int curr_sessions = 0;
 int register_pipe; /* pipe opened */
+pc_queue_t* queue;
+pthread_t* threads;
 
 
 typedef struct box {
@@ -24,6 +26,7 @@ typedef struct box {
 	uint64_t publisher;
 	uint64_t subscribers;
 	uint64_t box_size;
+	pthread_mutex_t mutex;
 	pthread_cond_t condition;
 	struct box* next;
 } Box;
@@ -192,6 +195,7 @@ void register_pub(char *name_pipe, char *box_name) {
 	/* Verify if box exists */
 	if (box == NULL) {
 		close(pub_pipe);
+
 		return;
 	/* Verify if box alread has a publisher */
 	} else if (box->publisher != 0) {
@@ -496,13 +500,66 @@ void process_serialization(char *message) {
 		strcpy(box_name, strtok(NULL, "|"));
 		remove_box(name_pipe, box_name);
 
+	/* List Boxes */
 	} else if (REQUEST_BOX_LIST == code){
 		char name_pipe[256];
 		strcpy(name_pipe, strtok(NULL, "|"));
 		send_box_list(name_pipe);
 	}
-
 }
+
+void promto1() {
+	printf("hi");
+}
+
+void promto2() {
+	printf("hi");
+}
+
+
+void *session_threads() {
+	while (true) {
+		char *request = (char *)pcq_dequeue(queue);
+		process_serialization(request);
+	}
+}
+
+
+void close_queue() {
+	for(int i=0; i<max_sessions; i++) {
+		pthread_join(threads[i], NULL);
+	}
+	pcq_destroy(queue);
+	free(queue);
+	free(threads);
+}
+
+void destroy_boxes(Box* box) {
+	if (box == NULL) {
+		return;
+	} else {
+		Box* temp = box;
+		box = box->next;
+		free(temp);
+		destroy_boxes(box);
+	}
+}
+
+static void sig_handler(int sig) {
+	if (sig == SIGINT) {
+		if (signal(SIGINT, sig_handler) == SIG_ERR) {
+			exit(EXIT_FAILURE);
+		}
+	} else if (sig == SIGQUIT) {
+		if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+			exit(EXIT_FAILURE);
+		}
+	}
+	close_queue();
+	destroy_boxes(box_list);
+	exit(EXIT_SUCCESS);
+}
+    
 
 
 int main(int argc, char **argv) {
@@ -513,9 +570,33 @@ int main(int argc, char **argv) {
     verify_arguments(argc);
     char* register_pipe_name = argv[1];
     max_sessions = atoi(argv[2]);
+	max_sessions = 1;
+
+	/* Producer-Consumer Queue Init */
+	threads = (pthread_t*)malloc(sizeof(pthread_t)*(unsigned int)max_sessions);
+	size_t queue_size = (size_t) max_sessions*2;
+	// allocate memory for the queue
+	queue = (pc_queue_t*)malloc(sizeof(pc_queue_t));
+	
+	if (pcq_create(queue,queue_size) == -1) {
+		exit(EXIT_FAILURE);
+	}
+
+	if (signal(SIGINT, sig_handler) == SIG_ERR) {
+		exit(EXIT_FAILURE);
+	} else if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
+		exit(EXIT_FAILURE);
+	}
+	
+	//for a iniciar as threads
+	for(int i=0; i<max_sessions; i++){
+		assert(pthread_create(&threads[i], NULL, session_threads, NULL) == 0); 
+	}
+
+
 
     register_pipe = mbroker_init(register_pipe_name);
-    
+
     while (true) {
         char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
@@ -526,7 +607,9 @@ int main(int argc, char **argv) {
             exit(EXIT_FAILURE);
         } else if (ret != 0) {
 			buffer[ret] = 0;
-			process_serialization(buffer);
+			if (pcq_enqueue(queue, (void *)buffer) == -1) {
+				exit(EXIT_FAILURE);
+			}
 		}
     }
 
