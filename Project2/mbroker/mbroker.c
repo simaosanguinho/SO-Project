@@ -464,7 +464,9 @@ char string_to_char(char* str){
 
 
 void process_serialization(char *message) {
-	char *args = strtok(message, "|");		// extract message code	
+	char args[BUFFER_SIZE];
+	strcpy(args, message);
+	strcpy(args, strtok(args, "|"));
 	char code = string_to_char(args);
 
 	/* Register Publisher */
