@@ -67,6 +67,7 @@ void insert_box(char box_name[32]) {
 	new_box->box_size = 0;
 	new_box->next = box_list;
 	pthread_cond_init(&new_box->condition, NULL);
+	pthread_mutex_init(&new_box->mutex, NULL);
 	box_list = new_box;
 }
 
@@ -75,6 +76,8 @@ int delete_box(char *box_name) {
 	Box* prev = NULL;
 	if (temp != NULL && strcmp(temp->box_name, box_name) == 0) {
 		box_list = temp->next;
+		pthread_cond_destroy(&temp->condition);
+		pthread_mutex_destroy(&temp->mutex);
 		free(temp);
 		return 0;
 	}
@@ -139,12 +142,13 @@ void read_publisher(int pub_pipe, Box* box) {
 		memset(buffer, '\0', BUFFER_SIZE);
 		ssize_t ret = read(pub_pipe, buffer, BUFFER_SIZE);
 		if (ret == -1) {
-			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+			fprintf(stderr, "[ERR]: read failed 1: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 		} else if (ret==0 || box == NULL) {
 			/* Publisher closed session or box doesn't exist anymore */
 			break;
 		} else {
+			pthread_mutex_lock(&box->mutex);
 			buffer[ret] = '\0';
 			char filename[33];
 			char message[1024];
@@ -157,14 +161,17 @@ void read_publisher(int pub_pipe, Box* box) {
 			ssize_t written = tfs_write(fbox, message, strlen(message)+1); /* strlen+1 forces \0 character to be written */
 			if (written == -1) {
 				/* Error writing */
+				pthread_mutex_unlock(&box->mutex);
 				continue;
 			} else if (written != strlen(message)+1) {
 				/* File exceed maximum capacity */
 				box->box_size += (uint64_t) written;
+				pthread_mutex_unlock(&box->mutex);
 				tfs_close(fbox);
 				break;
 			}
 			/* Broadcast a signal to all subscribers to receive a message */
+			pthread_mutex_unlock(&box->mutex);
 			pthread_cond_broadcast(&box->condition);
 
 			// increment the box size with the new message size
@@ -223,7 +230,10 @@ int send_message_subscriber(int sub_pipe, char message[1024]) {
 
 	ssize_t written = write(sub_pipe, buffer, strlen(buffer));
 	if (written == -1) {
-		fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+		if (strcmp(strerror(errno), "Broken pipe") == 0) {
+			return -1; /* sub pipe session was closed and unliked */
+		}
+		fprintf(stderr, "[ERR]: read failed 2: %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
 	} else if (written==0) {
 		return -1; /* subscriber session closed */
@@ -241,8 +251,7 @@ int read_past_messages(int sub_pipe, Box* box) {
 	char buffer[BUFFER_SIZE];
 	memset(buffer, '\0', BUFFER_SIZE);
 	ssize_t bytes_read;
-
-
+	pthread_mutex_lock(&box->mutex);
 	while ((bytes_read = tfs_read(fbox, buffer, BUFFER_SIZE)) > 0) {
 
 		char message[1024];
@@ -255,6 +264,7 @@ int read_past_messages(int sub_pipe, Box* box) {
 				if (send_message_subscriber(sub_pipe, message) == -1) { /* send message to subscriber */
 						tfs_close(fbox);
 						close(sub_pipe); /* close session */
+						pthread_mutex_unlock(&box->mutex);
 						return -1;
 				}
 				memset(message, '\0', 1024);
@@ -265,6 +275,7 @@ int read_past_messages(int sub_pipe, Box* box) {
 			}
 		}
 	}
+	pthread_mutex_unlock(&box->mutex);
 	tfs_close(fbox);
 	return 0;
 }
@@ -289,17 +300,20 @@ void write_subscriber(int sub_pipe, Box* box) {
 
 		ssize_t written = tfs_read(fbox, buffer, BUFFER_SIZE); /* read last message */
 		if (written == -1) {
-			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+			fprintf(stderr, "[ERR]: read failed 3: %s\n", strerror(errno));
+			pthread_mutex_unlock(&box->mutex);
 			exit(EXIT_FAILURE);
 		} else if (written==0) {
 			break; /* session closed */
 		} else {
 			buffer[written] = 0;
 			if (send_message_subscriber(sub_pipe, buffer) == -1) {
+				pthread_mutex_unlock(&box->mutex);
 				return; // close session (error sending message)
 			}
 		}
 	}
+	pthread_mutex_unlock(&box->mutex);
 	tfs_close(fbox);
 	close(sub_pipe);
 }
@@ -576,6 +590,8 @@ int main(int argc, char **argv) {
 		exit(EXIT_FAILURE);
 	} else if (signal(SIGQUIT, sig_handler) == SIG_ERR) {
 		exit(EXIT_FAILURE);
+	} else if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+		exit(EXIT_FAILURE);
 	}
 	
 	//for a iniciar as threads
@@ -593,7 +609,7 @@ int main(int argc, char **argv) {
         ssize_t ret = read(register_pipe, buffer, BUFFER_SIZE);
         if (ret == -1) {
             // ret == -1 indicates error
-            fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
+            fprintf(stderr, "[ERR]: read failed 4: %s\n", strerror(errno));
             exit(EXIT_FAILURE);
         } else if (ret != 0) {
 			buffer[ret] = 0;
