@@ -1,3 +1,9 @@
+/**
+ * @file utils.h
+ * @author Simão Sanguinho - ist1102082, Henrique Pimentel ist1104156
+ * @group al041
+ * @date 2022-01-15
+ */
 
 #ifndef __UTILS_UTILS_H__
 #define __UTILS_UTILS_H__
@@ -8,7 +14,7 @@
 
 //CONSTANTES
 
-#define BUFFER_SIZE 1343
+#define BUFFER_SIZE 1342
 
 #define MESSAGE_SIZE 1024
 #define PIPE_SIZE 256

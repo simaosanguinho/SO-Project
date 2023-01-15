@@ -1,3 +1,10 @@
+/**
+ * @file mbroker.c
+ * @author Simão Sanguinho - ist1102082, Henrique Pimentel ist1104156
+ * @group al041
+ * @date 2022-01-15
+ */
+
 #include "logging.h"
 #include "utils.h"
 #include "operations.h"
@@ -22,17 +29,24 @@ pthread_t* threads;
 
 
 typedef struct box {
-	char box_name[32];
+	char box_name[BOX_SIZE];
 	uint64_t publisher;
 	uint64_t subscribers;
 	uint64_t box_size;
-	pthread_mutex_t mutex;
-	pthread_cond_t condition;
 	struct box* next;
 } Box;
 
 
+typedef struct control_box {
+	char box_name[BOX_SIZE];
+	pthread_mutex_t mutex;
+	pthread_cond_t signal;
+	struct control_box* next;
+} ControlBox;
+
+
 Box* box_list = NULL;
+ControlBox* control_box_list = NULL;
 
 
 void print_usage(){
@@ -66,9 +80,14 @@ void insert_box(char box_name[32]) {
 	new_box->publisher = 0;
 	new_box->box_size = 0;
 	new_box->next = box_list;
-	pthread_cond_init(&new_box->condition, NULL);
-	pthread_mutex_init(&new_box->mutex, NULL);
+
 	box_list = new_box;
+
+	ControlBox* new_controlbox = (ControlBox*)malloc(sizeof(ControlBox));
+	strcpy(new_controlbox->box_name, box_name);
+	pthread_cond_init(&new_controlbox->signal, NULL);
+	pthread_mutex_init(&new_controlbox->mutex, NULL);
+	control_box_list = new_controlbox;
 }
 
 int delete_box(char *box_name) {
@@ -76,7 +95,35 @@ int delete_box(char *box_name) {
 	Box* prev = NULL;
 	if (temp != NULL && strcmp(temp->box_name, box_name) == 0) {
 		box_list = temp->next;
-		//pthread_cond_broadcast(&temp->condition);
+		free(temp);
+		temp = NULL;
+		char filename[BOX_SIZE+1];
+		get_box_filename(box_name, filename);
+		tfs_unlink(box_name);
+		return 0;
+	}
+	while (temp != NULL && strcmp(temp->box_name, box_name) != 0) {
+        prev = temp;
+        temp = temp->next;
+    }
+    if (temp == NULL) return -1;
+    prev->next = temp->next;
+    free(temp);
+	temp = NULL;
+	// erase the box content
+	char filename[BOX_SIZE+1];
+	get_box_filename(box_name, filename);
+	tfs_unlink(box_name);
+	return 0;
+}
+
+int delete_control_box(char *box_name) {
+	ControlBox* temp = control_box_list;
+	ControlBox* prev = NULL;
+	if (temp != NULL && strcmp(temp->box_name, box_name) == 0) {
+		control_box_list = temp->next;
+		pthread_mutex_destroy(&temp->mutex);
+		pthread_cond_destroy(&temp->signal);
 		free(temp);
 		temp = NULL;
 		return 0;
@@ -87,13 +134,29 @@ int delete_box(char *box_name) {
     }
     if (temp == NULL) return -1;
     prev->next = temp->next;
+	pthread_mutex_destroy(&temp->mutex);
+	pthread_cond_destroy(&temp->signal);
     free(temp);
+	temp = NULL;
 	return 0;
 }
 
 
 Box* search_boxes(char *box_name) {
 	Box* temp = box_list;
+
+    while (temp != NULL) {
+		if (strcmp(temp->box_name, box_name) == 0) {
+			return temp;
+		}
+		temp = temp->next;
+    }
+
+	return NULL;
+}
+
+ControlBox* get_control_box(char *box_name) {
+	ControlBox* temp = control_box_list;
 
     while (temp != NULL) {
 		if (strcmp(temp->box_name, box_name) == 0) {
@@ -134,12 +197,11 @@ int mbroker_init(char* register_pipe_name){
 /*                   */
 /*     PUBLISHER     */
 /*                   */
-
-/*  */
+/*  				 */
 void read_publisher(int pub_pipe, Box* box) {
+	ControlBox *cb = get_control_box(box->box_name);
 	while (true) {
 		MessageRequest request;
-
 		ssize_t ret = read(pub_pipe, &request, sizeof(request));
 		if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
@@ -148,27 +210,32 @@ void read_publisher(int pub_pipe, Box* box) {
 			/* Publisher closed session or box doesn't exist anymore */
 			break;
 		} else {
-			pthread_mutex_lock(&box->mutex);
+			pthread_mutex_lock(&cb->mutex);
 			char filename[BOX_SIZE+1];
 			/* Write message into the box in tfs */
 			get_box_filename(box->box_name, filename);
 
 			int fbox = tfs_open(filename, TFS_O_APPEND); /* APPEND flag to force offset to write in the end */
-			ssize_t written = tfs_write(fbox, request.message, strlen(request.message)+1); /* strlen+1 forces \0 character to be written */
+			if (fbox == -1) {
+				pthread_mutex_unlock(&cb->mutex); /* box file doesnt exist */
+				break;
+			}
+			ssize_t written = tfs_write(fbox, request.message, 
+											strlen(request.message)+1); /* strlen+1 forces \0 character to be written */
 			if (written == -1) {
 				/* Error writing */
-				pthread_mutex_unlock(&box->mutex);
-				continue;
+				pthread_mutex_unlock(&cb->mutex);
+				break;
 			} else if (written != strlen(request.message)+1) {
 				/* File exceed maximum capacity */
 				box->box_size += (uint64_t) written;
-				pthread_mutex_unlock(&box->mutex);
+				pthread_mutex_unlock(&cb->mutex);
 				tfs_close(fbox);
 				break;
 			}
 			/* Broadcast a signal to all subscribers to receive a message */
-			pthread_mutex_unlock(&box->mutex);
-			pthread_cond_broadcast(&box->condition);
+			pthread_mutex_unlock(&cb->mutex);
+			pthread_cond_broadcast(&cb->signal);
 
 			// increment the box size with the new message size
 			box->box_size += (uint64_t) written;
@@ -240,13 +307,14 @@ int read_past_messages(int sub_pipe, Box* box) {
 	if (box == NULL) {
 		return -1;
 	}
+	ControlBox *cb = get_control_box(box->box_name);
 	char filename[BOX_SIZE+1];
 	get_box_filename(box->box_name, filename);
 	int fbox = tfs_open(filename, 0); /* Open to read, with offset in 0 */
 	char buffer[BUFFER_SIZE];
 	memset(buffer, '\0', BUFFER_SIZE);
 	ssize_t bytes_read;
-	pthread_mutex_lock(&box->mutex);
+	pthread_mutex_lock(&cb->mutex);
 	while ((bytes_read = tfs_read(fbox, buffer, BUFFER_SIZE)) > 0) {
 
 		char message[MESSAGE_SIZE];
@@ -257,10 +325,9 @@ int read_past_messages(int sub_pipe, Box* box) {
 			if (buffer[i] == '\0') {
 				//usleep(1000); /* Prevenir race com o read do subscriber - sleep 0.1 ms */
 				if (send_message_subscriber(sub_pipe, message) == -1) { /* send message to subscriber */
-						box->subscribers--;
 						tfs_close(fbox);
 						close(sub_pipe); /* close session */
-						pthread_mutex_unlock(&box->mutex);
+						pthread_mutex_unlock(&cb->mutex);
 						return -1;
 				}
 				memset(message, '\0', MESSAGE_SIZE);
@@ -271,7 +338,7 @@ int read_past_messages(int sub_pipe, Box* box) {
 			}
 		}
 	}
-	pthread_mutex_unlock(&box->mutex);
+	pthread_mutex_unlock(&cb->mutex);
 	tfs_close(fbox);
 	return 0;
 }
@@ -281,37 +348,35 @@ void write_subscriber(int sub_pipe, Box* box) {
 	if (read_past_messages(sub_pipe, box) == -1) {
 		return; /* Error reading old messages, close session */
 	}
-
+	ControlBox* cb = get_control_box(box->box_name);
 	char filename[BOX_SIZE+1];
 	get_box_filename(box->box_name, filename);
 	int fbox = tfs_open(filename, TFS_O_APPEND); /* Force to set offset in last position */
-	pthread_mutex_lock(&box->mutex);
+	pthread_mutex_lock(&cb->mutex);
 	while (true) { /* Read new messages */
+		pthread_cond_wait(&cb->signal, &cb->mutex);
 		if (box == NULL) { /* Box doesn't exist anymore */
 			break; /* Close session */
 		}
-		pthread_cond_wait(&box->condition, &box->mutex);
 		char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
 
 		ssize_t written = tfs_read(fbox, buffer, MESSAGE_SIZE); /* read last message */
 		if (written == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
-			pthread_mutex_unlock(&box->mutex);
+			pthread_mutex_unlock(&cb->mutex);
 			exit(EXIT_FAILURE);
 		} else if (written==0) {
-			box->subscribers--;
 			break; /* session closed */
 		} else {
 			buffer[written] = 0;
 			if (send_message_subscriber(sub_pipe, buffer) == -1) {
-				pthread_mutex_unlock(&box->mutex);
-				box->subscribers--;
+				pthread_mutex_unlock(&cb->mutex);
 				return; // close session (error sending message)
 			}
 		}
 	}
-	pthread_mutex_unlock(&box->mutex);
+	pthread_mutex_unlock(&cb->mutex);
 	tfs_close(fbox);
 	close(sub_pipe);
 }
@@ -353,30 +418,30 @@ void register_new_box(char name_pipe[PIPE_SIZE], char box_name[BOX_SIZE]) {
         exit(EXIT_FAILURE);
     }
 
-	MessageRequest response;
-	response.code = ANSWER_BOX_CREATE;
-	response.return_code = 0;
-	memset(response.message, '\0', sizeof(response.message));
+	MessageRequest answer;
+	answer.code = ANSWER_BOX_CREATE;
+	answer.return_code = 0;
+	memset(answer.message, '\0', sizeof(answer.message));
 
 	// box already exists
 	if (search_boxes(box_name) != NULL) {
-		response.return_code = -1;
-		strcpy(response.message, "Box already exists.");
+		answer.return_code = -1;
+		strcpy(answer.message, "Box already exists.");
 	} else {
 		char filename[BOX_SIZE+1];
 		get_box_filename(box_name, filename);
-		int fhandler = tfs_open(filename, TFS_O_CREAT);
+		int fhandler = tfs_open(filename, TFS_O_CREAT | TFS_O_TRUNC);
 		// could not open a tfs_file 
 		if (fhandler == -1) {
-			response.return_code = -1;
-			strcpy(response.message, "Error creating new file on tfs.");
+			answer.return_code = -1;
+			strcpy(answer.message, "Error creating new file on tfs.");
 		} else {
 			insert_box(box_name);
 		}
 		tfs_close(fhandler);
 	}
 	
-	ssize_t written = write(man_pipe, &response, sizeof(response));
+	ssize_t written = write(man_pipe, &answer, sizeof(answer));
 	if (written < 0) {
 		exit(EXIT_FAILURE);
 	}
@@ -387,10 +452,10 @@ void register_new_box(char name_pipe[PIPE_SIZE], char box_name[BOX_SIZE]) {
 
 
 void remove_box(char *name_pipe, char *box_name){
-	MessageRequest response;
-	response.code = ANSWER_BOX_REMOVE;
-	response.return_code = 0;
-	memset(response.message, '\0', sizeof(response.message));
+	MessageRequest answer;
+	answer.code = ANSWER_BOX_REMOVE;
+	answer.return_code = 0;
+	memset(answer.message, '\0', sizeof(answer.message));
 
 	// Open pipe for write
     int man_pipe = open(name_pipe, O_WRONLY);
@@ -402,25 +467,26 @@ void remove_box(char *name_pipe, char *box_name){
 	// the subscribers and publishers' pipes close automatically
 	// so these stop running 
 	if (delete_box(box_name) == -1){
-		response.return_code = -1;
-		strcpy(response.message, "deleting box - box does not exist.");
+		answer.return_code = -1;
+		strcpy(answer.message, "deleting box - box does not exist.");
+	} else {
+		ControlBox *cb = get_control_box(box_name);
+		pthread_cond_broadcast(&cb->signal);
+		delete_control_box(box_name);
 	}
 
 	// write message in pipe
-	ssize_t written = write(man_pipe, &response, sizeof(response));
+	ssize_t written = write(man_pipe, &answer, sizeof(answer));
 	if (written < 0) {
 		exit(EXIT_FAILURE);
 	}
-	char filename[BOX_SIZE+1];
-	get_box_filename(box_name, filename);
-	tfs_unlink(box_name);
 	close(man_pipe);
 }
 
 
 void send_box_list(char* name_pipe) {
-	MessageRequest response;
-	response.code = ANSWER_BOX_LIST;
+	MessageRequest answer;
+	answer.code = ANSWER_BOX_LIST;
 
 	int man_pipe = open(name_pipe, O_WRONLY);
     if (man_pipe == -1) {
@@ -430,20 +496,20 @@ void send_box_list(char* name_pipe) {
 
 	Box* temp = box_list;
 	if (temp == NULL) { /* no box found */
-		memset(response.box_name, '\0', sizeof(response.box_name));
-		response.last = 1;
-		if (write(man_pipe, &response, sizeof(response))<0) exit(EXIT_FAILURE);
+		memset(answer.box_name, '\0', sizeof(answer.box_name));
+		answer.last = 1;
+		if (write(man_pipe, &answer, sizeof(answer))<0) exit(EXIT_FAILURE);
 	}
     while (temp != NULL) {
-		memset(response.box_name, '\0', sizeof(response.box_name));
-		if (temp->next == NULL) response.last = 1;
-		memcpy(response.box_name, temp->box_name, strlen(temp->box_name));
-		response.box_size = temp->box_size;
-		response.n_publishers = temp->publisher;
-		response.n_subscribers = temp->subscribers;
+		memset(answer.box_name, '\0', sizeof(answer.box_name));
+		if (temp->next == NULL) answer.last = 1;
+		memcpy(answer.box_name, temp->box_name, strlen(temp->box_name));
+		answer.box_size = temp->box_size;
+		answer.n_publishers = temp->publisher;
+		answer.n_subscribers = temp->subscribers;
 
 		//usleep(1000); //prevent races
-		if (write(man_pipe, &response, sizeof(response)) == -1) 
+		if (write(man_pipe, &answer, sizeof(answer)) == -1) 
 			exit(EXIT_FAILURE);
         temp = temp->next;
     }
@@ -522,6 +588,17 @@ void destroy_boxes(Box* box) {
 	}
 }
 
+void destroy_control_boxes(ControlBox* cb) {
+	if (cb == NULL) {
+		return;
+	} else {
+		ControlBox* temp = cb;
+		cb = cb->next;
+		free(temp);
+		destroy_control_boxes(cb);
+	}
+}
+
 static void sig_handler(int sig) {
 	if (sig == SIGINT) {
 		if (signal(SIGINT, sig_handler) == SIG_ERR) {
@@ -534,6 +611,7 @@ static void sig_handler(int sig) {
 	}
 	close_queue();
 	destroy_boxes(box_list);
+	destroy_control_boxes(control_box_list);
 	exit(EXIT_SUCCESS);
 }
     

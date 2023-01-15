@@ -1,3 +1,10 @@
+/**
+ * @file produce-consumer.h
+ * @author Simão Sanguinho - ist1102082, Henrique Pimentel ist1104156
+ * @group al041
+ * @date 2022-01-15
+ */
+
 #ifndef __PRODUCER_CONSUMER_H__
 #define __PRODUCER_CONSUMER_H__
 

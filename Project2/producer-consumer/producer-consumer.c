@@ -1,3 +1,10 @@
+/**
+ * @file produce-consumer.c
+ * @author Simão Sanguinho - ist1102082, Henrique Pimentel ist1104156
+ * @group al041
+ * @date 2022-01-15
+ */
+
 #include "logging.h"
 #include "utils.h"
 #include "operations.h"
