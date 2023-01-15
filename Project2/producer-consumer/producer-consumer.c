@@ -15,14 +15,19 @@
 #include <unistd.h>
 #include <pthread.h>
 
+
 // pcq_create: create a queue, with a given (fixed) capacity
 //
 // Memory: the queue pointer must be previously allocated
 // (either on the stack or the heap)
 int pcq_create(pc_queue_t *queue, size_t capacity) {
 
-    if (!(queue->pcq_buffer = (void **) malloc(capacity * sizeof(void *)))) {
+    if (!(queue->pcq_buffer = (void **) malloc(capacity * sizeof(void*)))) {
 		return -1;
+	}
+
+	for(int i=0; i<capacity; i++) {
+		queue->pcq_buffer[i] = malloc(BUFFER_SIZE + 1);
 	}
 
 	queue->pcq_capacity = capacity;
@@ -90,6 +95,9 @@ int pcq_create(pc_queue_t *queue, size_t capacity) {
 // Memory: does not free the queue pointer itself
 int pcq_destroy(pc_queue_t *queue) {
 	int error = 0;
+	for(int i=0; i<queue->pcq_capacity; i++) {
+		free(queue->pcq_buffer[i]);
+	}
 	free(queue->pcq_buffer);
 	error += pthread_cond_destroy(&queue->pcq_popper_condvar);
 	error += pthread_mutex_destroy(&queue->pcq_popper_condvar_lock);
@@ -105,41 +113,33 @@ int pcq_destroy(pc_queue_t *queue) {
 }
 
 
-void dog() {
-	printf("d");
-}
-
-
-void cat() {
-	printf("d");
-}
-
 
 
 // pcq_enqueue: insert a new element at the front of the queue
 //
 // If the queue is full, sleep until the queue has space
 int pcq_enqueue(pc_queue_t *queue, void *elem) {
-	pthread_mutex_lock(&queue->pcq_pusher_condvar_lock);
-	while (queue->pcq_current_size == queue->pcq_capacity) {
-		pthread_cond_wait(&queue->pcq_pusher_condvar, &queue->pcq_pusher_condvar_lock);
-	}
-	dog();
-	pthread_mutex_lock(&queue->pcq_head_lock); /* lock head of queue */
-	queue->pcq_buffer[queue->pcq_head] = elem; /* add element to buffer head */
-	queue->pcq_head = (queue->pcq_head+1)%queue->pcq_capacity;
-	dog();
-	pthread_mutex_lock(&queue->pcq_current_size_lock); /* lock current_size modification */
-	queue->pcq_current_size++;
-	pthread_mutex_unlock(&queue->pcq_current_size_lock);
+    pthread_mutex_lock(&queue->pcq_pusher_condvar_lock);
+    while (queue->pcq_current_size == queue->pcq_capacity) {
+        pthread_cond_wait(&queue->pcq_pusher_condvar, &queue->pcq_pusher_condvar_lock);
+    }
+    pthread_mutex_lock(&queue->pcq_head_lock); /* lock head of queue */
 
-	pthread_mutex_unlock(&queue->pcq_head_lock);
-	dog();
-	pthread_cond_signal(&queue->pcq_popper_condvar); /* send signal to dequeue */
-	pthread_mutex_unlock(&queue->pcq_pusher_condvar_lock);
-	dog();
-	return 0;
+    /* allocate memory for the string and copy it into the buffer */
+    size_t elem_len = strlen((char*)elem);
+    memcpy(queue->pcq_buffer[queue->pcq_head], elem, elem_len + 1);
+
+    queue->pcq_head = (queue->pcq_head+1)%queue->pcq_capacity;
+    pthread_mutex_lock(&queue->pcq_current_size_lock); /* lock current_size modification */
+    queue->pcq_current_size++;
+    pthread_mutex_unlock(&queue->pcq_current_size_lock);
+
+    pthread_mutex_unlock(&queue->pcq_head_lock);
+    pthread_cond_signal(&queue->pcq_popper_condvar); /* send signal to dequeue */
+    pthread_mutex_unlock(&queue->pcq_pusher_condvar_lock);
+    return 0;
 }
+
 
 // pcq_dequeue: remove an element from the back of the queue
 //
@@ -152,7 +152,6 @@ void *pcq_dequeue(pc_queue_t *queue) {
 	while (queue->pcq_current_size == 0) {
 		pthread_cond_wait(&queue->pcq_popper_condvar, &queue->pcq_popper_condvar_lock);
 	}
-	cat();
 	pthread_mutex_lock(&queue->pcq_tail_lock); /* lock tail of queue */
 	elem = queue->pcq_buffer[queue->pcq_tail]; /* copy element from buffer tail */
 	queue->pcq_tail = (queue->pcq_tail+1)%queue->pcq_capacity;

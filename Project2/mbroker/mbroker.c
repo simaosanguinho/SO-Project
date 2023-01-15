@@ -165,7 +165,7 @@ void read_publisher(int pub_pipe, Box* box) {
 				break;
 			}
 			/* Broadcast a signal to all subscribers to receive a message */
-			//pthread_cond_broadcast(&box->condition);
+			pthread_cond_broadcast(&box->condition);
 
 			// increment the box size with the new message size
 			box->box_size += (uint64_t) written;
@@ -251,7 +251,7 @@ int read_past_messages(int sub_pipe, Box* box) {
 
 		for (int i=0; i<bytes_read; i++) { /* find null char */
 			if (buffer[i] == '\0') {
-				usleep(10000); /* Prevenir race com o read do subscriber - sleep 1 ms */
+				usleep(1000); /* Prevenir race com o read do subscriber - sleep 0.1 ms */
 				if (send_message_subscriber(sub_pipe, message) == -1) { /* send message to subscriber */
 						tfs_close(fbox);
 						close(sub_pipe); /* close session */
@@ -278,11 +278,12 @@ void write_subscriber(int sub_pipe, Box* box) {
 	char filename[33];
 	get_box_filename(box->box_name, filename);
 	int fbox = tfs_open(filename, TFS_O_APPEND); /* Force to set offset in last position */
-
+	pthread_mutex_lock(&box->mutex);
 	while (true) { /* Read new messages */
 		if (box == NULL) { /* Box doesn't exist anymore */
 			break; /* Close session */
 		}
+		pthread_cond_wait(&box->condition, &box->mutex);
 		char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
 
@@ -463,10 +464,8 @@ char string_to_char(char* str){
 
 
 
-void process_serialization(char *message) {
-	char args[BUFFER_SIZE];
-	strcpy(args, message);
-	strcpy(args, strtok(args, "|"));
+void process_serialization(char *args) {
+	args = strtok(args, "|");
 	char code = string_to_char(args);
 
 	/* Register Publisher */
@@ -510,13 +509,6 @@ void process_serialization(char *message) {
 	}
 }
 
-void promto1() {
-	printf("hi");
-}
-
-void promto2() {
-	printf("hi");
-}
 
 
 void *session_threads() {
@@ -528,9 +520,6 @@ void *session_threads() {
 
 
 void close_queue() {
-	for(int i=0; i<max_sessions; i++) {
-		pthread_join(threads[i], NULL);
-	}
 	pcq_destroy(queue);
 	free(queue);
 	free(threads);
@@ -572,7 +561,6 @@ int main(int argc, char **argv) {
     verify_arguments(argc);
     char* register_pipe_name = argv[1];
     max_sessions = atoi(argv[2]);
-	max_sessions = 1;
 
 	/* Producer-Consumer Queue Init */
 	threads = (pthread_t*)malloc(sizeof(pthread_t)*(unsigned int)max_sessions);
@@ -611,8 +599,7 @@ int main(int argc, char **argv) {
 			buffer[ret] = 0;
 			if (pcq_enqueue(queue, (void *)buffer) == -1) {
 				exit(EXIT_FAILURE);
-			}
-		}
+			}		}
     }
 
     return -1;

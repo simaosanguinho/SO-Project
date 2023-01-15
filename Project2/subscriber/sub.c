@@ -57,7 +57,6 @@ void read_messages() {
 		char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
 		ssize_t ret = read(pipe_i, buffer, BUFFER_SIZE);
-		printf("BUFFER HAS: %s\n", buffer);
 		if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
