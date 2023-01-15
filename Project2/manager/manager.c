@@ -16,7 +16,7 @@
 
 
 typedef struct box_data {
-	char box_name[32];
+	char box_name[BOX_SIZE];
 	long box_size;
 	long n_subscribers;
 	long publisher;
@@ -76,13 +76,15 @@ void close_register_pipe(int register_pipe){
 }
 
 // tries to create or destroy a box 
-void create_destroy_box(uint8_t code, char* box_name, char* pipe_name, int register_pipe){
+void create_destroy_box(uint8_t code, char box_name[BOX_SIZE], char pipe_name[PIPE_SIZE], int register_pipe){
 	/* Format message request */
-	char message_request[BUFFER_SIZE];
-	sprintf(message_request, "%c|%s|%s", code, pipe_name, box_name);
+	uint8_t message_request[sizeof(uint8_t)+(BOX_SIZE+PIPE_SIZE)*sizeof(char)] = {0};
+	memcpy(message_request, &code, sizeof(uint8_t));
+	memcpy(message_request+sizeof(uint8_t), pipe_name, strlen(pipe_name));
+	memcpy(message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), box_name, strlen(box_name));
 
 	/* Send request */
-	if (write(register_pipe, message_request, strlen(message_request)) == -1) {
+	if (write(register_pipe, message_request, sizeof(message_request)) == -1) {
         fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
 	}
@@ -93,30 +95,27 @@ void create_destroy_box(uint8_t code, char* box_name, char* pipe_name, int regis
         exit(EXIT_FAILURE);
     }
 
-	char buffer[BUFFER_SIZE];
-	char error_message[BUFFER_SIZE];
+
+	uint8_t message_response[sizeof(uint8_t)+sizeof(int32_t)+sizeof(char)*MESSAGE_SIZE] = {0};
 	int32_t return_code;
 
-	ssize_t ret = read(pipe_i, buffer, BUFFER_SIZE);
+	ssize_t ret = read(pipe_i, message_response, sizeof(message_response));
 	if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 	}
-
-	strtok(buffer, "|");
-	return_code = (int32_t) atoi(strtok(NULL, "|"));
-	
+	memcpy(&return_code, message_request+sizeof(uint8_t), sizeof(int32_t));
 
 	// box was successfully created or destroyed
 	if (return_code != -1) {
 		fprintf(stdout, "OK\n");
 	} else {
-		strcpy(error_message, strtok(NULL, "|"));
+		char error_message[MESSAGE_SIZE];
+		memcpy(error_message, message_response+sizeof(uint8_t)+sizeof(int32_t), MESSAGE_SIZE*sizeof(char));
 		fprintf(stdout, "ERROR %s\n", error_message);
 	}
 	
 	close(pipe_i);
-
 }
 
 // insert box in list by alphabetical order
@@ -236,8 +235,9 @@ int main(int argc, char **argv) {
 	verify_arguments(argc);
 
     char* register_pipe_name = argv[1];
-	char* pipe_name = argv[2];
-    char* action = argv[3];
+	char pipe_name[32];
+	char* action = argv[3];
+	strcpy(pipe_name, argv[2]);
 
 	manager_init(pipe_name);
 
@@ -245,11 +245,13 @@ int main(int argc, char **argv) {
 	int register_pipe = open_register_pipe(register_pipe_name);
 
 	if (strcmp(action, "create") == 0) {
-		char* box_name = argv[4];
-		create_destroy_box('3', box_name, pipe_name, register_pipe);
+		char box_name[BOX_SIZE];
+		strcpy(box_name, argv[4]);
+		create_destroy_box(REQUEST_BOX_CREATE, box_name, pipe_name, register_pipe);
 	} else if (strcmp(action, "remove") == 0) {
-		char* box_name = argv[4];
-		create_destroy_box('5', box_name, pipe_name, register_pipe);
+		char box_name[BOX_SIZE];
+		strcpy(box_name, argv[4]);
+		create_destroy_box(REQUEST_BOX_REMOVE, box_name, pipe_name, register_pipe);
 	} else if (strcmp(action, "list") == 0) {
 		list_boxes(pipe_name, register_pipe);
 	} else {

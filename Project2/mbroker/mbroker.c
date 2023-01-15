@@ -138,22 +138,19 @@ int mbroker_init(char* register_pipe_name){
 /*  */
 void read_publisher(int pub_pipe, Box* box) {
 	while (true) {
-		char buffer[BUFFER_SIZE];
-		memset(buffer, '\0', BUFFER_SIZE);
-		ssize_t ret = read(pub_pipe, buffer, BUFFER_SIZE);
+		uint8_t buffer[sizeof(uint8_t)+MESSAGE_SIZE*sizeof(char)] = {0};
+		ssize_t ret = read(pub_pipe, buffer, sizeof(buffer));
 		if (ret == -1) {
-			fprintf(stderr, "[ERR]: read failed 1: %s\n", strerror(errno));
+			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 		} else if (ret==0 || box == NULL) {
 			/* Publisher closed session or box doesn't exist anymore */
 			break;
 		} else {
 			pthread_mutex_lock(&box->mutex);
-			buffer[ret] = '\0';
 			char filename[33];
-			char message[1024];
-			strtok(buffer, "|"); /* Remove code from beginning of code */
-			strcpy(message, strtok(NULL, "|"));
+			char message[MESSAGE_SIZE];
+			memcpy(buffer+sizeof(uint8_t), message, sizeof(char)*MESSAGE_SIZE);
 			/* Write message into the box in tfs */
 			get_box_filename(box->box_name, filename);
 
@@ -230,7 +227,7 @@ int send_message_subscriber(int sub_pipe, char message[1024]) {
 
 	ssize_t written = write(sub_pipe, buffer, strlen(buffer));
 	if (written == -1) {
-		if (strcmp(strerror(errno), "Broken pipe") == 0) {
+		if (errno == EPIPE) {
 			return -1; /* sub pipe session was closed and unliked */
 		}
 		fprintf(stderr, "[ERR]: read failed 2: %s\n", strerror(errno));
@@ -347,7 +344,7 @@ void register_sub(char *name_pipe, char *box_name) {
 /*                 */
 
 
-int register_new_box(char *name_pipe, char box_name[32]) {
+int register_new_box(char name_pipe[256], char box_name[32]) {
 	// Open pipe for write
     int man_pipe = open(name_pipe, O_WRONLY);
     if (man_pipe == -1) {
@@ -357,8 +354,7 @@ int register_new_box(char *name_pipe, char box_name[32]) {
 
 	uint8_t code = ANSWER_BOX_CREATE;
 	int32_t return_code = 0;
-	char error_message[BUFFER_SIZE] ;
-	memset(error_message, '\0', BUFFER_SIZE);
+	char error_message[MESSAGE_SIZE];
 
 	// box already exists
 	if (search_boxes(box_name) != NULL) {
@@ -379,9 +375,14 @@ int register_new_box(char *name_pipe, char box_name[32]) {
 	}
 
 	// write message in pipe
-	char message_request[BUFFER_SIZE];
-	sprintf(message_request, "%c|%d|%s", code, return_code, error_message);
-	ssize_t written = write(man_pipe, message_request, strlen(message_request));
+	uint8_t message_request[sizeof(uint8_t)+sizeof(int32_t)+MESSAGE_SIZE*sizeof(char)];
+	memcpy(message_request, &code, sizeof(uint8_t));
+	memcpy(message_request+sizeof(uint8_t), &return_code, sizeof(int32_t));
+	if (return_code == -1) {
+		memcpy(message_request+sizeof(uint8_t)+sizeof(int32_t), error_message, strlen(error_message));
+	}
+	
+	ssize_t written = write(man_pipe, message_request, sizeof(message_request));
 	if (written < 0) {
 		exit(EXIT_FAILURE);
 	}
@@ -470,55 +471,48 @@ void send_box_list(char* name_pipe) {
 	close(man_pipe);
 }
 
-// convert a string of lenght 1 to character
-char string_to_char(char* str){
-	char c = str[0];
-	return c;
-}
 
-
-
-void process_serialization(char *args) {
-	args = strtok(args, "|");
-	char code = string_to_char(args);
+void process_serialization(uint8_t *message_request) {
+	uint8_t code;
+	memcpy(&code, message_request, sizeof(uint8_t));
 
 	/* Register Publisher */
 	if (REQUEST_PUB_REGISTER == code) {
-		char name_pipe[256];
-		char box_name[32];
-		strcpy(name_pipe, strtok(NULL, "|"));
-		strcpy(box_name, strtok(NULL, "|"));
+		char name_pipe[PIPE_SIZE];
+		char box_name[BOX_SIZE];
+		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
+		memcpy(box_name, message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), BOX_SIZE);
 		register_pub(name_pipe, box_name);
 
 	/* Register Subscriber */
 	} else if (REQUEST_SUB_REGISTER == code) {
-		char name_pipe[256];
-		char box_name[32];
-		strcpy(name_pipe, strtok(NULL, "|"));
-		strcpy(box_name, strtok(NULL, "|"));
+		char name_pipe[PIPE_SIZE];
+		char box_name[BOX_SIZE];
+		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
+		memcpy(box_name, message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), BOX_SIZE);
 		register_sub(name_pipe, box_name);
 
 	/* Create Box */
 	} else if (REQUEST_BOX_CREATE == code) {
-		char name_pipe[256];
-		char box_name[32];
-		strcpy(name_pipe, strtok(NULL, "|"));
-		strcpy(box_name, strtok(NULL, "|"));
+		char name_pipe[PIPE_SIZE];
+		char box_name[BOX_SIZE];
+		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
+		memcpy(box_name, message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), BOX_SIZE);
 		int box_pipe = register_new_box(name_pipe, box_name);
 		close(box_pipe);
 
 	/* Remove Box */
 	} else if (REQUEST_BOX_REMOVE == code) {
-		char name_pipe[256];
-		char box_name[32];
-		strcpy(name_pipe, strtok(NULL, "|"));
-		strcpy(box_name, strtok(NULL, "|"));
+		char name_pipe[PIPE_SIZE];
+		char box_name[BOX_SIZE];
+		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
+		memcpy(box_name, message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), BOX_SIZE);
 		remove_box(name_pipe, box_name);
 
 	/* List Boxes */
 	} else if (REQUEST_BOX_LIST == code){
-		char name_pipe[256];
-		strcpy(name_pipe, strtok(NULL, "|"));
+		char name_pipe[PIPE_SIZE];
+		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
 		send_box_list(name_pipe);
 	}
 }
@@ -527,7 +521,7 @@ void process_serialization(char *args) {
 
 void *session_threads() {
 	while (true) {
-		char *request = (char *)pcq_dequeue(queue);
+		uint8_t *request = (uint8_t *)pcq_dequeue(queue);
 		process_serialization(request);
 	}
 }
@@ -604,12 +598,12 @@ int main(int argc, char **argv) {
     register_pipe = mbroker_init(register_pipe_name);
 
     while (true) {
-        char buffer[BUFFER_SIZE];
+        uint8_t buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
         ssize_t ret = read(register_pipe, buffer, BUFFER_SIZE);
         if (ret == -1) {
             // ret == -1 indicates error
-            fprintf(stderr, "[ERR]: read failed 4: %s\n", strerror(errno));
+            fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
             exit(EXIT_FAILURE);
         } else if (ret != 0) {
 			buffer[ret] = 0;

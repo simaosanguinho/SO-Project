@@ -14,7 +14,7 @@
 #include "utils.h"
 #include <signal.h>
 
-char pipe_name[256];
+char pipe_name[PIPE_SIZE];
 int pipe_i = -1;
 
 void print_usage(){
@@ -31,11 +31,13 @@ int verify_arguments(int argc){
 }
 
 /* Send register code */
-void register_publisher(char *register_pipe_name, char box_name[32]) {
+void register_publisher(char *register_pipe_name, char box_name[BOX_SIZE]) {
 	/* Format message request */
 	uint8_t code = REQUEST_PUB_REGISTER;
-	char message_request[BUFFER_SIZE];
-	sprintf(message_request, "%c|%s|%s", code, pipe_name, box_name);
+	uint8_t message_request[sizeof(uint8_t)+(BOX_SIZE+PIPE_SIZE)*sizeof(char)];
+	memcpy(message_request, &code, sizeof(uint8_t));
+	memcpy(message_request+sizeof(uint8_t), pipe_name, strlen(pipe_name));
+	memcpy(message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), box_name, strlen(box_name));
 
 	/* Send request */
 	int register_pipe = open(register_pipe_name, O_WRONLY);
@@ -44,7 +46,7 @@ void register_publisher(char *register_pipe_name, char box_name[32]) {
         exit(EXIT_FAILURE);
     }
 
-    if (write(register_pipe, message_request, strlen(message_request)) == -1) {
+    if (write(register_pipe, message_request, sizeof(message_request)) == -1) {
         fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
 	}
@@ -54,23 +56,24 @@ void register_publisher(char *register_pipe_name, char box_name[32]) {
 
 /* read stdin and send it to mbroker, until reaches EOF or mbroker closes pipe */
 void send_messages() {
-	char buffer[BUFFER_SIZE];
+	char message_buffer[MESSAGE_SIZE];
 
 	while (true) {
-		memset(buffer, '\0', BUFFER_SIZE);
-		if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
+		memset(message_buffer, '\0', MESSAGE_SIZE);
+
+		if (fgets(message_buffer, sizeof(message_buffer), stdin) == NULL) {
 			break; /* EOF */
 		}
 
-		size_t newline_i = strcspn(buffer, "\n");
-		buffer[newline_i] = '\0';
-
+		size_t newline_index = strcspn(message_buffer, "\n");
+		message_buffer[newline_index] = '\0';
 		uint8_t code = PUB_WRITE_MSG;
-		char message_publisher[BUFFER_SIZE];
-		sprintf(message_publisher, "%c|%s", code, buffer); 
+		uint8_t message_request[sizeof(uint8_t)+MESSAGE_SIZE*sizeof(char)] = {0};
+		memcpy(message_request, &code, sizeof(uint8_t));
+		memcpy(message_request+sizeof(uint8_t), message_buffer, strlen(message_buffer));
 
 		// write message in pipe
-		ssize_t written = write(pipe_i, message_publisher, strlen(message_publisher));
+		ssize_t written = write(pipe_i, message_request, sizeof(message_request));
 		if (written < 0) {
 			exit(EXIT_FAILURE);
 		} else if (written == 0) { /* mbroker closed session */
