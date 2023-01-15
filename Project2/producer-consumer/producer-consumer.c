@@ -126,8 +126,7 @@ int pcq_enqueue(pc_queue_t *queue, void *elem) {
     pthread_mutex_lock(&queue->pcq_head_lock); /* lock head of queue */
 
     /* allocate memory for the string and copy it into the buffer */
-    size_t elem_len = strlen((char*)elem);
-    memcpy(queue->pcq_buffer[queue->pcq_head], elem, elem_len + 1);
+    memcpy(queue->pcq_buffer[queue->pcq_head], elem, sizeof(MessageRequest));
 
     queue->pcq_head = (queue->pcq_head+1)%queue->pcq_capacity;
     pthread_mutex_lock(&queue->pcq_current_size_lock); /* lock current_size modification */

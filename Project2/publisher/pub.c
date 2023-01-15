@@ -33,11 +33,12 @@ int verify_arguments(int argc){
 /* Send register code */
 void register_publisher(char *register_pipe_name, char box_name[BOX_SIZE]) {
 	/* Format message request */
-	uint8_t code = REQUEST_PUB_REGISTER;
-	uint8_t message_request[sizeof(uint8_t)+(BOX_SIZE+PIPE_SIZE)*sizeof(char)];
-	memcpy(message_request, &code, sizeof(uint8_t));
-	memcpy(message_request+sizeof(uint8_t), pipe_name, strlen(pipe_name));
-	memcpy(message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), box_name, strlen(box_name));
+	MessageRequest request;
+	request.code = REQUEST_PUB_REGISTER;
+	memset(request.pipe_name, '\0', sizeof(request.pipe_name));
+	memset(request.box_name, '\0', sizeof(request.box_name));
+	memcpy(request.pipe_name, pipe_name, strlen(pipe_name));
+	memcpy(request.box_name, box_name, strlen(box_name));
 
 	/* Send request */
 	int register_pipe = open(register_pipe_name, O_WRONLY);
@@ -46,7 +47,7 @@ void register_publisher(char *register_pipe_name, char box_name[BOX_SIZE]) {
         exit(EXIT_FAILURE);
     }
 
-    if (write(register_pipe, message_request, sizeof(message_request)) == -1) {
+    if (write(register_pipe, &request, sizeof(request)) == -1) {
         fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
 	}
@@ -67,13 +68,13 @@ void send_messages() {
 
 		size_t newline_index = strcspn(message_buffer, "\n");
 		message_buffer[newline_index] = '\0';
-		uint8_t code = PUB_WRITE_MSG;
-		uint8_t message_request[sizeof(uint8_t)+MESSAGE_SIZE*sizeof(char)] = {0};
-		memcpy(message_request, &code, sizeof(uint8_t));
-		memcpy(message_request+sizeof(uint8_t), message_buffer, strlen(message_buffer));
+		MessageRequest request;
+		request.code = PUB_WRITE_MSG;
+		memset(request.message, '\0', sizeof(request.message));
+		memcpy(request.message, message_buffer, strlen(message_buffer));
 
 		// write message in pipe
-		ssize_t written = write(pipe_i, message_request, sizeof(message_request));
+		ssize_t written = write(pipe_i, &request, sizeof(request));
 		if (written < 0) {
 			exit(EXIT_FAILURE);
 		} else if (written == 0) { /* mbroker closed session */
@@ -125,7 +126,7 @@ int main(int argc, char **argv) {
 	/* Verify and store arguments given */
 	verify_arguments(argc);
     char* register_pipe_name = argv[1];
-	char box_name[32];
+	char box_name[BOX_SIZE];
 	strcpy(pipe_name, argv[2]);
 	strcpy(box_name, argv[3]);
 

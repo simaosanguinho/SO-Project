@@ -17,9 +17,9 @@
 
 typedef struct box_data {
 	char box_name[BOX_SIZE];
-	long box_size;
-	long n_subscribers;
-	long publisher;
+	uint64_t box_size;
+	uint64_t n_subscribers;
+	uint64_t publisher;
 	struct box_data* next;
 } Box_Data;
 
@@ -78,13 +78,16 @@ void close_register_pipe(int register_pipe){
 // tries to create or destroy a box 
 void create_destroy_box(uint8_t code, char box_name[BOX_SIZE], char pipe_name[PIPE_SIZE], int register_pipe){
 	/* Format message request */
-	uint8_t message_request[sizeof(uint8_t)+(BOX_SIZE+PIPE_SIZE)*sizeof(char)] = {0};
-	memcpy(message_request, &code, sizeof(uint8_t));
-	memcpy(message_request+sizeof(uint8_t), pipe_name, strlen(pipe_name));
-	memcpy(message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), box_name, strlen(box_name));
+	MessageRequest request;
+	request.code = code;
+	memset(request.pipe_name, '\0', sizeof(request.pipe_name));
+	memset(request.box_name, '\0', sizeof(request.box_name));
+
+	memcpy(request.pipe_name, pipe_name, strlen(pipe_name));
+	memcpy(request.box_name, box_name, strlen(box_name));
 
 	/* Send request */
-	if (write(register_pipe, message_request, sizeof(message_request)) == -1) {
+	if (write(register_pipe, &request, sizeof(request)) == -1) {
         fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
 	}
@@ -95,24 +98,19 @@ void create_destroy_box(uint8_t code, char box_name[BOX_SIZE], char pipe_name[PI
         exit(EXIT_FAILURE);
     }
 
+	MessageRequest response;
 
-	uint8_t message_response[sizeof(uint8_t)+sizeof(int32_t)+sizeof(char)*MESSAGE_SIZE] = {0};
-	int32_t return_code;
-
-	ssize_t ret = read(pipe_i, message_response, sizeof(message_response));
+	ssize_t ret = read(pipe_i, &response, sizeof(response));
 	if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 	}
-	memcpy(&return_code, message_request+sizeof(uint8_t), sizeof(int32_t));
 
 	// box was successfully created or destroyed
-	if (return_code != -1) {
+	if (response.return_code != -1) {
 		fprintf(stdout, "OK\n");
 	} else {
-		char error_message[MESSAGE_SIZE];
-		memcpy(error_message, message_response+sizeof(uint8_t)+sizeof(int32_t), MESSAGE_SIZE*sizeof(char));
-		fprintf(stdout, "ERROR %s\n", error_message);
+		fprintf(stdout, "ERROR %s\n", response.message);
 	}
 	
 	close(pipe_i);
@@ -142,7 +140,7 @@ void print_box_list()
 {
     Box_Data* aux;
     for(aux = box_list; aux != NULL; aux = aux->next)
-        fprintf(stdout, "%s %zu %zu %zu\n", 
+        fprintf(stdout, "%s %llu %llu %llu\n", 
 					aux->box_name, 
 					aux->box_size, 
 					aux->publisher,
@@ -172,12 +170,13 @@ void destroy_box_list(){
 //list the boxes in the server
 void list_boxes(char* pipe_name, int register_pipe){
 	/* Format message request */
-	uint8_t code = REQUEST_BOX_LIST;
-	char message_request[BUFFER_SIZE];
-	sprintf(message_request, "%c|%s", code, pipe_name);
+	MessageRequest request;
+	request.code = REQUEST_BOX_LIST;
+	memset(request.pipe_name, '\0', sizeof(request.pipe_name));
+	memcpy(request.pipe_name, pipe_name, strlen(pipe_name));
 
 	/* Send request */
-	if (write(register_pipe, message_request, strlen(message_request)) == -1) {
+	if (write(register_pipe, &request, sizeof(request)) == -1) {
         fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
 	}
@@ -189,39 +188,30 @@ void list_boxes(char* pipe_name, int register_pipe){
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-	uint8_t last = 0;
+	MessageRequest response;
 	do {
-		
-		char buffer[BUFFER_SIZE];
-		char *box_name;
-		memset(buffer, '\0', BUFFER_SIZE);
-		ssize_t ret = read(pipe_i, buffer, BUFFER_SIZE);
+		ssize_t ret = read(pipe_i, &response, sizeof(response));
 		if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 		}
 		Box_Data* curr_box =  (Box_Data*)malloc(sizeof(Box_Data));
 		
-		strtok(buffer, "|");
-		last = (uint8_t) atoi(strtok(NULL, "|"));
-		box_name = strtok(NULL, "|");
-
-		
-		if (last == 1 && box_name==NULL) {
+		if (response.last == 1 && strlen(response.box_name) == 0) {
 			fprintf(stdout, "NO BOXES FOUND\n");
 			free(curr_box);
 			break;
 		}
-		strcpy(curr_box->box_name, box_name);
-		curr_box->box_size  = (long) atoll(strtok(NULL, "|"));
-		curr_box->publisher = (long) atoll(strtok(NULL, "|"));
-		curr_box->n_subscribers = (long) atoll(strtok(NULL, "|"));
+		strcpy(curr_box->box_name, response.box_name);
+		curr_box->box_size  = response.box_size;
+		curr_box->publisher = response.n_publishers;
+		curr_box->n_subscribers = response.n_subscribers;
 
 		// no boxes were registered in the mbroker
 		insert_box(curr_box);
 		
 		
-	} while (last != 1);
+	} while (response.last != 1);
 
 	print_box_list();
 	destroy_box_list();
@@ -235,7 +225,7 @@ int main(int argc, char **argv) {
 	verify_arguments(argc);
 
     char* register_pipe_name = argv[1];
-	char pipe_name[32];
+	char pipe_name[PIPE_SIZE];
 	char* action = argv[3];
 	strcpy(pipe_name, argv[2]);
 

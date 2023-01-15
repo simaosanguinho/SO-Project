@@ -8,11 +8,23 @@
 
 //CONSTANTES
 
-#define BUFFER_SIZE 1500
+#define BUFFER_SIZE 1343
 
 #define MESSAGE_SIZE 1024
-#define BOX_SIZE 32
 #define PIPE_SIZE 256
+#define BOX_SIZE 32
+
+typedef struct __attribute__((packed)) message_request {
+	uint8_t code;
+	char pipe_name[PIPE_SIZE];
+	char box_name[BOX_SIZE];
+	int32_t return_code;
+	char message[MESSAGE_SIZE];
+	uint8_t last;
+	uint64_t box_size;
+	uint64_t n_publishers;
+	uint64_t n_subscribers;
+} MessageRequest;
 
 
 /* Protocol constants */

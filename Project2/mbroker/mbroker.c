@@ -49,7 +49,7 @@ int verify_arguments(int argc){
 }
 
 /* returns filename with a '/' in the beginning */
-void get_box_filename(char box_name[32], char *filename) {
+void get_box_filename(char box_name[BOX_SIZE], char *filename) {
 	sprintf(filename, "/%s", box_name);
 }
 
@@ -76,9 +76,9 @@ int delete_box(char *box_name) {
 	Box* prev = NULL;
 	if (temp != NULL && strcmp(temp->box_name, box_name) == 0) {
 		box_list = temp->next;
-		pthread_cond_destroy(&temp->condition);
-		pthread_mutex_destroy(&temp->mutex);
+		//pthread_cond_broadcast(&temp->condition);
 		free(temp);
+		temp = NULL;
 		return 0;
 	}
 	while (temp != NULL && strcmp(temp->box_name, box_name) != 0) {
@@ -138,8 +138,9 @@ int mbroker_init(char* register_pipe_name){
 /*  */
 void read_publisher(int pub_pipe, Box* box) {
 	while (true) {
-		uint8_t buffer[sizeof(uint8_t)+MESSAGE_SIZE*sizeof(char)] = {0};
-		ssize_t ret = read(pub_pipe, buffer, sizeof(buffer));
+		MessageRequest request;
+
+		ssize_t ret = read(pub_pipe, &request, sizeof(request));
 		if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
@@ -148,19 +149,17 @@ void read_publisher(int pub_pipe, Box* box) {
 			break;
 		} else {
 			pthread_mutex_lock(&box->mutex);
-			char filename[33];
-			char message[MESSAGE_SIZE];
-			memcpy(buffer+sizeof(uint8_t), message, sizeof(char)*MESSAGE_SIZE);
+			char filename[BOX_SIZE+1];
 			/* Write message into the box in tfs */
 			get_box_filename(box->box_name, filename);
 
 			int fbox = tfs_open(filename, TFS_O_APPEND); /* APPEND flag to force offset to write in the end */
-			ssize_t written = tfs_write(fbox, message, strlen(message)+1); /* strlen+1 forces \0 character to be written */
+			ssize_t written = tfs_write(fbox, request.message, strlen(request.message)+1); /* strlen+1 forces \0 character to be written */
 			if (written == -1) {
 				/* Error writing */
 				pthread_mutex_unlock(&box->mutex);
 				continue;
-			} else if (written != strlen(message)+1) {
+			} else if (written != strlen(request.message)+1) {
 				/* File exceed maximum capacity */
 				box->box_size += (uint64_t) written;
 				pthread_mutex_unlock(&box->mutex);
@@ -218,19 +217,18 @@ void register_pub(char *name_pipe, char *box_name) {
 /*     SUBSCRIBER     */
 /*                    */
 
-int send_message_subscriber(int sub_pipe, char message[1024]) {
-	uint8_t code = SUB_READ_MSG;
-	char buffer[BUFFER_SIZE];
-	memset(buffer, '\0', BUFFER_SIZE);
-	sprintf(buffer, "%hhu|%s", code, message);
+int send_message_subscriber(int sub_pipe, char message[MESSAGE_SIZE]) {
+	MessageRequest request;
+	request.code = SUB_READ_MSG;
+	memset(request.message, '\0', sizeof(request.message));
+	memcpy(request.message, message, strlen(message));
 	
-
-	ssize_t written = write(sub_pipe, buffer, strlen(buffer));
+	ssize_t written = write(sub_pipe, &request, sizeof(request));
 	if (written == -1) {
 		if (errno == EPIPE) {
 			return -1; /* sub pipe session was closed and unliked */
 		}
-		fprintf(stderr, "[ERR]: read failed 2: %s\n", strerror(errno));
+		fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
 	} else if (written==0) {
 		return -1; /* subscriber session closed */
@@ -242,7 +240,7 @@ int read_past_messages(int sub_pipe, Box* box) {
 	if (box == NULL) {
 		return -1;
 	}
-	char filename[33];
+	char filename[BOX_SIZE+1];
 	get_box_filename(box->box_name, filename);
 	int fbox = tfs_open(filename, 0); /* Open to read, with offset in 0 */
 	char buffer[BUFFER_SIZE];
@@ -251,20 +249,21 @@ int read_past_messages(int sub_pipe, Box* box) {
 	pthread_mutex_lock(&box->mutex);
 	while ((bytes_read = tfs_read(fbox, buffer, BUFFER_SIZE)) > 0) {
 
-		char message[1024];
-		memset(message, '\0', 1024);
+		char message[MESSAGE_SIZE];
+		memset(message, '\0', MESSAGE_SIZE);
 		int index = 0;
 
 		for (int i=0; i<bytes_read; i++) { /* find null char */
 			if (buffer[i] == '\0') {
-				usleep(1000); /* Prevenir race com o read do subscriber - sleep 0.1 ms */
+				//usleep(1000); /* Prevenir race com o read do subscriber - sleep 0.1 ms */
 				if (send_message_subscriber(sub_pipe, message) == -1) { /* send message to subscriber */
+						box->subscribers--;
 						tfs_close(fbox);
 						close(sub_pipe); /* close session */
 						pthread_mutex_unlock(&box->mutex);
 						return -1;
 				}
-				memset(message, '\0', 1024);
+				memset(message, '\0', MESSAGE_SIZE);
 				index = 0;
 			} else {
 				message[index] = buffer[i];
@@ -283,7 +282,7 @@ void write_subscriber(int sub_pipe, Box* box) {
 		return; /* Error reading old messages, close session */
 	}
 
-	char filename[33];
+	char filename[BOX_SIZE+1];
 	get_box_filename(box->box_name, filename);
 	int fbox = tfs_open(filename, TFS_O_APPEND); /* Force to set offset in last position */
 	pthread_mutex_lock(&box->mutex);
@@ -295,17 +294,19 @@ void write_subscriber(int sub_pipe, Box* box) {
 		char buffer[BUFFER_SIZE];
 		memset(buffer, '\0', BUFFER_SIZE);
 
-		ssize_t written = tfs_read(fbox, buffer, BUFFER_SIZE); /* read last message */
+		ssize_t written = tfs_read(fbox, buffer, MESSAGE_SIZE); /* read last message */
 		if (written == -1) {
-			fprintf(stderr, "[ERR]: read failed 3: %s\n", strerror(errno));
+			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			pthread_mutex_unlock(&box->mutex);
 			exit(EXIT_FAILURE);
 		} else if (written==0) {
+			box->subscribers--;
 			break; /* session closed */
 		} else {
 			buffer[written] = 0;
 			if (send_message_subscriber(sub_pipe, buffer) == -1) {
 				pthread_mutex_unlock(&box->mutex);
+				box->subscribers--;
 				return; // close session (error sending message)
 			}
 		}
@@ -344,7 +345,7 @@ void register_sub(char *name_pipe, char *box_name) {
 /*                 */
 
 
-int register_new_box(char name_pipe[256], char box_name[32]) {
+void register_new_box(char name_pipe[PIPE_SIZE], char box_name[BOX_SIZE]) {
 	// Open pipe for write
     int man_pipe = open(name_pipe, O_WRONLY);
     if (man_pipe == -1) {
@@ -352,118 +353,97 @@ int register_new_box(char name_pipe[256], char box_name[32]) {
         exit(EXIT_FAILURE);
     }
 
-	uint8_t code = ANSWER_BOX_CREATE;
-	int32_t return_code = 0;
-	char error_message[MESSAGE_SIZE];
+	MessageRequest response;
+	response.code = ANSWER_BOX_CREATE;
+	response.return_code = 0;
+	memset(response.message, '\0', sizeof(response.message));
 
 	// box already exists
 	if (search_boxes(box_name) != NULL) {
-		return_code = -1;
-		strcpy(error_message, "Box already exists.");
+		response.return_code = -1;
+		strcpy(response.message, "Box already exists.");
 	} else {
-		char filename[33];
+		char filename[BOX_SIZE+1];
 		get_box_filename(box_name, filename);
 		int fhandler = tfs_open(filename, TFS_O_CREAT);
 		// could not open a tfs_file 
 		if (fhandler == -1) {
-			return_code = -1;
-			strcpy(error_message, "Error creating new file on tfs.");
+			response.return_code = -1;
+			strcpy(response.message, "Error creating new file on tfs.");
 		} else {
 			insert_box(box_name);
 		}
 		tfs_close(fhandler);
 	}
-
-	// write message in pipe
-	uint8_t message_request[sizeof(uint8_t)+sizeof(int32_t)+MESSAGE_SIZE*sizeof(char)];
-	memcpy(message_request, &code, sizeof(uint8_t));
-	memcpy(message_request+sizeof(uint8_t), &return_code, sizeof(int32_t));
-	if (return_code == -1) {
-		memcpy(message_request+sizeof(uint8_t)+sizeof(int32_t), error_message, strlen(error_message));
-	}
 	
-	ssize_t written = write(man_pipe, message_request, sizeof(message_request));
+	ssize_t written = write(man_pipe, &response, sizeof(response));
 	if (written < 0) {
 		exit(EXIT_FAILURE);
 	}
 
 	close(man_pipe);
-
-	return -1;
 }
 
 
 
-int remove_box(char *name_pipe, char *box_name){
-	//(void) box_name;
-	char error_message[BUFFER_SIZE];
-	int32_t return_code = 0;
+void remove_box(char *name_pipe, char *box_name){
+	MessageRequest response;
+	response.code = ANSWER_BOX_REMOVE;
+	response.return_code = 0;
+	memset(response.message, '\0', sizeof(response.message));
+
 	// Open pipe for write
     int man_pipe = open(name_pipe, O_WRONLY);
     if (man_pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-	uint8_t code = ANSWER_BOX_REMOVE;
 
 	// the subscribers and publishers' pipes close automatically
 	// so these stop running 
-	if(delete_box(box_name) == -1){
-		return_code = -1;
-		strcpy(error_message, "Error deleting box - box does not exist.");
+	if (delete_box(box_name) == -1){
+		response.return_code = -1;
+		strcpy(response.message, "deleting box - box does not exist.");
 	}
 
 	// write message in pipe
-	char message_request[BUFFER_SIZE];
-	sprintf(message_request, "%c|%d|%s", code, return_code, error_message);
-	ssize_t written = write(man_pipe, message_request, strlen(message_request));
+	ssize_t written = write(man_pipe, &response, sizeof(response));
 	if (written < 0) {
 		exit(EXIT_FAILURE);
 	}
-
+	char filename[BOX_SIZE+1];
+	get_box_filename(box_name, filename);
 	tfs_unlink(box_name);
 	close(man_pipe);
-	
-	return -1;
 }
 
 
 void send_box_list(char* name_pipe) {
-	uint8_t code = ANSWER_BOX_LIST;
-
-	uint8_t last = 0;
-	char box_name[32];
-	uint64_t box_size;
-	uint64_t n_publishers;
-	uint64_t n_subscribers;
+	MessageRequest response;
+	response.code = ANSWER_BOX_LIST;
 
 	int man_pipe = open(name_pipe, O_WRONLY);
     if (man_pipe == -1) {
         fprintf(stderr, "[ERR]: open failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-	
-	char message_box[BUFFER_SIZE];
 
 	Box* temp = box_list;
 	if (temp == NULL) { /* no box found */
-		memset(message_box, '\0', BUFFER_SIZE);
-		memset(box_name, '\0', 32);
-		last = 1;
-		sprintf(message_box, "%hhu|%hhu|%s", code, last, box_name);
-		if (write(man_pipe, message_box, strlen(message_box)+1)<0) exit(EXIT_FAILURE);
+		memset(response.box_name, '\0', sizeof(response.box_name));
+		response.last = 1;
+		if (write(man_pipe, &response, sizeof(response))<0) exit(EXIT_FAILURE);
 	}
     while (temp != NULL) {
-		memset(message_box, '\0', BUFFER_SIZE);
-		if (temp->next == NULL) last = 1;
-		strcpy(box_name, temp->box_name);
-		box_size = temp->box_size;
-		n_publishers = temp->publisher;
-		n_subscribers = temp->subscribers;
-		sprintf(message_box, "%hhu|%hhu|%s|%llu|%llu|%llu", 
-				code, last, box_name, box_size, n_publishers, n_subscribers);
-		usleep(10000);
-		if (write(man_pipe, message_box, strlen(message_box)) == -1) 
+		memset(response.box_name, '\0', sizeof(response.box_name));
+		if (temp->next == NULL) response.last = 1;
+		memcpy(response.box_name, temp->box_name, strlen(temp->box_name));
+		response.box_size = temp->box_size;
+		response.n_publishers = temp->publisher;
+		response.n_subscribers = temp->subscribers;
+
+		//usleep(1000); //prevent races
+		if (write(man_pipe, &response, sizeof(response)) == -1) 
 			exit(EXIT_FAILURE);
         temp = temp->next;
     }
@@ -472,47 +452,45 @@ void send_box_list(char* name_pipe) {
 }
 
 
-void process_serialization(uint8_t *message_request) {
-	uint8_t code;
-	memcpy(&code, message_request, sizeof(uint8_t));
+void process_serialization(MessageRequest *request) {
+	uint8_t code = request->code;
 
 	/* Register Publisher */
 	if (REQUEST_PUB_REGISTER == code) {
 		char name_pipe[PIPE_SIZE];
 		char box_name[BOX_SIZE];
-		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
-		memcpy(box_name, message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), BOX_SIZE);
+		memcpy(name_pipe, request->pipe_name, sizeof(request->pipe_name));
+		memcpy(box_name, request->box_name, sizeof(request->box_name));
 		register_pub(name_pipe, box_name);
 
 	/* Register Subscriber */
 	} else if (REQUEST_SUB_REGISTER == code) {
 		char name_pipe[PIPE_SIZE];
 		char box_name[BOX_SIZE];
-		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
-		memcpy(box_name, message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), BOX_SIZE);
+		memcpy(name_pipe, request->pipe_name, sizeof(request->pipe_name));
+		memcpy(box_name, request->box_name, sizeof(request->box_name));
 		register_sub(name_pipe, box_name);
 
 	/* Create Box */
 	} else if (REQUEST_BOX_CREATE == code) {
 		char name_pipe[PIPE_SIZE];
 		char box_name[BOX_SIZE];
-		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
-		memcpy(box_name, message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), BOX_SIZE);
-		int box_pipe = register_new_box(name_pipe, box_name);
-		close(box_pipe);
+		memcpy(name_pipe, request->pipe_name, sizeof(request->pipe_name));
+		memcpy(box_name, request->box_name, sizeof(request->box_name));
+		register_new_box(name_pipe, box_name);
 
 	/* Remove Box */
 	} else if (REQUEST_BOX_REMOVE == code) {
 		char name_pipe[PIPE_SIZE];
 		char box_name[BOX_SIZE];
-		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
-		memcpy(box_name, message_request+sizeof(uint8_t)+PIPE_SIZE*sizeof(char), BOX_SIZE);
+		memcpy(name_pipe, request->pipe_name, sizeof(request->pipe_name));
+		memcpy(box_name, request->box_name, sizeof(request->box_name));
 		remove_box(name_pipe, box_name);
 
 	/* List Boxes */
 	} else if (REQUEST_BOX_LIST == code){
 		char name_pipe[PIPE_SIZE];
-		memcpy(name_pipe, message_request+sizeof(uint8_t), PIPE_SIZE);
+		memcpy(name_pipe, request->pipe_name, sizeof(request->pipe_name));
 		send_box_list(name_pipe);
 	}
 }
@@ -521,7 +499,7 @@ void process_serialization(uint8_t *message_request) {
 
 void *session_threads() {
 	while (true) {
-		uint8_t *request = (uint8_t *)pcq_dequeue(queue);
+		MessageRequest *request = (MessageRequest *)pcq_dequeue(queue);
 		process_serialization(request);
 	}
 }
@@ -598,16 +576,14 @@ int main(int argc, char **argv) {
     register_pipe = mbroker_init(register_pipe_name);
 
     while (true) {
-        uint8_t buffer[BUFFER_SIZE];
-		memset(buffer, '\0', BUFFER_SIZE);
-        ssize_t ret = read(register_pipe, buffer, BUFFER_SIZE);
+		MessageRequest request;
+        ssize_t ret = read(register_pipe, &request, BUFFER_SIZE);
         if (ret == -1) {
             // ret == -1 indicates error
             fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
             exit(EXIT_FAILURE);
         } else if (ret != 0) {
-			buffer[ret] = 0;
-			if (pcq_enqueue(queue, (void *)buffer) == -1) {
+			if (pcq_enqueue(queue, &request) == -1) {
 				exit(EXIT_FAILURE);
 			}		}
     }

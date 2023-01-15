@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 int messages_received = 0;
-char pipe_name[256];
+char pipe_name[PIPE_SIZE];
 int pipe_i = -1;
 
 void print_usage(){
@@ -31,11 +31,15 @@ int verify_arguments(int argc){
 }
 
 
-void register_subscriber(char *register_pipe_name, char box_name[32]) {
+void register_subscriber(char *register_pipe_name, char box_name[BOX_SIZE]) {
 	/* Format message request */
-	uint8_t code = REQUEST_SUB_REGISTER;
-	char message_request[BUFFER_SIZE];
-	sprintf(message_request, "%c|%s|%s", code, pipe_name, box_name);
+	MessageRequest request;
+	memset(request.pipe_name, '\0', sizeof(request.pipe_name));
+	memset(request.box_name, '\0', sizeof(request.box_name));
+
+	request.code = REQUEST_SUB_REGISTER;
+	memcpy(request.pipe_name, pipe_name, strlen(pipe_name));
+	memcpy(request.box_name, box_name, strlen(box_name));
 
 	/* Send request */
 	int register_pipe = open(register_pipe_name, O_WRONLY);
@@ -44,7 +48,7 @@ void register_subscriber(char *register_pipe_name, char box_name[32]) {
         exit(EXIT_FAILURE);
     }
 
-    if (write(register_pipe, message_request, strlen(message_request)) == -1) {
+    if (write(register_pipe, &request, sizeof(request)) == -1) {
         fprintf(stderr, "[ERR]: write failed: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
 	}
@@ -54,20 +58,17 @@ void register_subscriber(char *register_pipe_name, char box_name[32]) {
 
 void read_messages() {
 	while (true) {
-		char buffer[BUFFER_SIZE];
-		memset(buffer, '\0', BUFFER_SIZE);
-		ssize_t ret = read(pipe_i, buffer, BUFFER_SIZE);
+		MessageRequest response;
+
+		ssize_t ret = read(pipe_i, &response, sizeof(response));
 		if (ret == -1) {
 			fprintf(stderr, "[ERR]: read failed: %s\n", strerror(errno));
 			exit(EXIT_FAILURE);
 		} else if (ret==0) {
 			break;
 		} else {
-			buffer[ret] = 0;
-			// extract the message code
-			strtok(buffer, "|");
 			// print the message
-			fprintf(stdout, "%s\n", strtok(NULL, "|"));
+			fprintf(stdout, "%s\n", response.message);
 			messages_received++;
 		}
 	}
@@ -114,7 +115,7 @@ int main(int argc, char **argv) {
 	/* Verify and store arguments given */
 	verify_arguments(argc);
     char* register_pipe_name = argv[1];
-	char box_name[32];
+	char box_name[BOX_SIZE];
 	strcpy(pipe_name, argv[2]);
 	strcpy(box_name, argv[3]);
 
